@@ -289,7 +289,7 @@ function blankState(){
     version: VERSION,
     decks: [],
     // Loop now defaults to ON: sessions keep going until you stop them.
-    settings: { speak: true, timer: 0, loop: true, mode: 'flash', dir: 'fb' }
+        settings: { speak: true, timer: 0, loop: true, mode: 'flash', dir: 'fb', hideTimer: false }
   };
 }
 function loadState(){
@@ -578,7 +578,7 @@ function renderDeck(){
           <div>
             <span class="label">Timer</span>
             <div class="seg">
-              ${[0, 5, 10, 15, 30].map(m =>
+                            ${[0, 1, 2, 3, 5, 10].map(m =>
                 `<button class="seg-btn ${s.timer === m ? 'on' : ''}" data-act="set-timer" data-v="${m}">${m === 0 ? 'Off' : m + ' min'}</button>`
               ).join('')}
             </div>
@@ -1151,17 +1151,22 @@ function renderSession(){
     : '';
 
   app.innerHTML = `
-    <header class="topbar session-bar">
+        <header class="topbar session-bar">
       <button class="btn ghost" data-act="end" title="End session">✕</button>
       <div class="session-info">
         <span class="muted small">
           ${esc(deck.name)} · ${session.mode === 'flash' ? 'Flashcards' : 'Quiz'} · ${session.dir === 'fb' ? 'Front → Back' : 'Back → Front'}${rangeNote}
         </span>
-        <div class="clock-row">
-          <span class="clock" id="clock">${clockText()}</span>
-          ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
-        </div>
+        ${!state.settings.hideTimer ? `
+          <div class="clock-row">
+            <span class="clock" id="clock">${clockText()}</span>
+            ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
+          </div>` : ''}
       </div>
+      <button class="btn ghost small" data-act="toggle-timer"
+              title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
+        ${state.settings.hideTimer ? '👁' : '⏱'}
+      </button>
       <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
     </header>
     <main class="wrap session-wrap">
@@ -1384,8 +1389,14 @@ document.addEventListener('click', e => {
       break;
     }
 
-    case 'start':
+        case 'start':
       startSession(view.deckId);
+      break;
+
+    case 'toggle-timer':
+      state.settings.hideTimer = !state.settings.hideTimer;
+      saveState();
+      render();
       break;
 
     case 'reveal':
