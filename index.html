@@ -324,7 +324,10 @@ function loadState(){
     d.studyRange = d.studyRange || { enabled: false, from: null, to: null };
     if(typeof d.studyRange.enabled !== 'boolean') d.studyRange.enabled = false;
     if(typeof d.studyRange.from !== 'number') d.studyRange.from = null;
-    if(typeof d.studyRange.to !== 'number')   d.studyRange.to   = null;
+        if(typeof d.studyRange.to !== 'number')   d.studyRange.to   = null;
+    // Daily "add cards" goal (0 = off) + per-day log of how many cards were added
+    d.addGoal = (typeof d.addGoal === 'number' && d.addGoal >= 0) ? d.addGoal : 0;
+    d.addedLog = d.addedLog || {};
   });
   return s;
 }
@@ -448,7 +451,15 @@ function deckCardHTML(d){
         <h3>${esc(d.name)}</h3>
         ${newCount ? `<span class="pill">${newCount} new</span>` : ''}
       </div>
-      <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal}×/day</div>
+            <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal}×/day${
+        d.addGoal > 0
+          ? (() => {
+              const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
+              const done = n >= d.addGoal;
+              return ` · <span style="${done ? 'color:var(--good); font-weight:700' : ''}">📝 ${n}/${d.addGoal} added${done ? ' ✓' : ''}</span>`;
+            })()
+          : ''
+      }</div>
       <div class="habit">${habitStripHTML(d)}</div>
       <div class="row">
         <button class="btn primary" data-act="open-deck" data-id="${d.id}">Open</button>
@@ -511,8 +522,19 @@ function renderDeck(){
           <div class="stat new"><b>${newCount}</b><span>not studied yet</span></div>
           <div class="stat"><b>${learned}</b><span>studied</span></div>
         </div>
-        <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
+                <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
         <div class="habit">${habitStripHTML(d)}</div>
+        ${d.addGoal > 0 ? (() => {
+          const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
+          const done = n >= d.addGoal;
+          return `
+            <span class="label" style="margin-top:16px">Daily "add cards" goal — ${d.addGoal}/day</span>
+            <div class="row">
+              <span class="pill" style="${done ? 'background:var(--good-soft); color:var(--good); font-size:13px; padding:6px 12px' : 'font-size:13px; padding:6px 12px'}">
+                📝 ${n}/${d.addGoal} added today${done ? ' ✓ done!' : ''}
+              </span>
+            </div>`;
+        })() : ''}
       </section>
 
       <section class="panel">
@@ -644,8 +666,11 @@ function openNewDeck(){
     <label class="field"><span>Language (used for read-aloud)</span>
       <select id="nd-lang">${LANGS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
     </label>
-    <label class="field"><span>Daily goal (drills per day)</span>
+        <label class="field"><span>Daily goal (drills per day)</span>
       <input id="nd-goal" type="number" min="1" max="20" value="3">
+    </label>
+    <label class="field"><span>Daily "add cards" goal (0 = off)</span>
+      <input id="nd-addgoal" type="number" min="0" max="50" value="0">
     </label>
     <div class="modal-actions">
       <span class="spacer"></span>
@@ -657,11 +682,13 @@ function openNewDeck(){
     setTimeout(() => nameEl.focus(), 60);
     root.querySelector('#nd-cancel').onclick = closeModal;
     const create = () => {
-      const deck = {
+            const deck = {
         id: uid(),
         name: nameEl.value.trim() || 'New deck',
         lang: root.querySelector('#nd-lang').value,
         goal: Math.max(1, parseInt(root.querySelector('#nd-goal').value, 10) || 3),
+        addGoal: Math.max(0, parseInt(root.querySelector('#nd-addgoal').value, 10) || 0),
+        addedLog: {},
         createdAt: Date.now(),
         habit: {},
         cards: [],
@@ -687,8 +714,11 @@ function openDeckSettings(deckId){
     <label class="field"><span>Language (read-aloud)</span>
       <select id="ds-lang">${LANGS.map(([v, l]) => `<option value="${v}" ${d.lang === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </label>
-    <label class="field"><span>Daily goal (drills per day)</span>
+        <label class="field"><span>Daily goal (drills per day)</span>
       <input id="ds-goal" type="number" min="1" max="20" value="${d.goal}">
+    </label>
+    <label class="field"><span>Daily "add cards" goal (0 = off)</span>
+      <input id="ds-addgoal" type="number" min="0" max="50" value="${d.addGoal || 0}">
     </label>
     <div class="modal-actions">
       <button class="btn danger" id="ds-del">Delete deck</button>
@@ -699,10 +729,11 @@ function openDeckSettings(deckId){
     </div>
   `, root => {
     root.querySelector('#ds-cancel').onclick = closeModal;
-    root.querySelector('#ds-save').onclick = () => {
+        root.querySelector('#ds-save').onclick = () => {
       d.name = root.querySelector('#ds-name').value.trim() || d.name;
       d.lang = root.querySelector('#ds-lang').value;
       d.goal = Math.max(1, parseInt(root.querySelector('#ds-goal').value, 10) || 1);
+      d.addGoal = Math.max(0, parseInt(root.querySelector('#ds-addgoal').value, 10) || 0);
       saveState(); closeModal(); render();
     };
     root.querySelector('#ds-reset').onclick = () => {
@@ -798,7 +829,7 @@ function openCardEditor(deckId, cardId){
         alert('Please add some text or an image to at least one side.');
         return;
       }
-      if(existing){
+                  if(existing){
         existing.front = draft.front;
         existing.back = draft.back;
       } else {
@@ -808,18 +839,28 @@ function openCardEditor(deckId, cardId){
           back: draft.back,
           studied: false,
           reviews: 0,
-          correct: 0
+          correct: 0,
+          addedAt: dayKey()               // <-- remembers which day it was added
         });
+        // Log "cards added today" for the deck's add-goal tracker
+        deck.addedLog = deck.addedLog || {};
+        const todayKey = dayKey();
+        deck.addedLog[todayKey] = (deck.addedLog[todayKey] || 0) + 1;
       }
       saveState();
       closeModal();
       render();
     };
 
-    if(existing){
+        if(existing){
       root.querySelector('#ce-del').onclick = () => {
         if(!confirm('Delete this card?')) return;
         deck.cards = deck.cards.filter(c => c.id !== existing.id);
+        // If this card was itself added today, adjust today's "added" count
+        if(existing.addedAt === dayKey() && deck.addedLog){
+          const todayKey = dayKey();
+          deck.addedLog[todayKey] = Math.max(0, (deck.addedLog[todayKey] || 0) - 1);
+        }
         saveState();
         closeModal();
         render();
@@ -1260,10 +1301,16 @@ document.addEventListener('click', e => {
       openCardEditor(view.deckId, id);
       break;
 
-    case 'del-card': {
+        case 'del-card': {
       const d = getDeck(view.deckId);
       if(d && confirm('Delete this card?')){
+        const card = d.cards.find(c => c.id === id);
         d.cards = d.cards.filter(c => c.id !== id);
+        // If this card was itself added today, adjust today's "added" count
+        if(card && card.addedAt === dayKey() && d.addedLog){
+          const todayKey = dayKey();
+          d.addedLog[todayKey] = Math.max(0, (d.addedLog[todayKey] || 0) - 1);
+        }
         saveState();
         render();
       }
