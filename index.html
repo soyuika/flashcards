@@ -758,11 +758,11 @@ function sideEditorHTML(side, label){
   return `
     <div class="side-editor">
       <div class="side-head"><span class="tag ${side === 'back' ? 'b' : ''}">${label}</span></div>
-      <div class="img-box" data-preview="${side}"></div>
+      <div class="img-box" data-preview="${side}" style="display:none"></div>
       <textarea data-side="${side}" rows="3" placeholder="${label} text…"></textarea>
       <div class="row">
         <label class="btn small file-btn">📷 Image<input type="file" accept="image/*" data-upload="${side}" hidden></label>
-        <button class="btn small ghost" data-clear="${side}">Remove image</button>
+        <button class="btn small ghost" data-clear="${side}" style="display:none">Remove image</button>
       </div>
     </div>`;
 }
@@ -770,9 +770,16 @@ function sideEditorHTML(side, label){
 function renderPreview(root, side, draft){
   const box = root.querySelector('[data-preview="' + side + '"]');
   if(!box) return;
-  box.innerHTML = draft[side].img
-    ? `<img src="${draft[side].img}" alt="">`
-    : '<span class="muted small">No image</span>';
+  const clearBtn = root.querySelector('button[data-clear="' + side + '"]');
+  if(draft[side].img){
+    box.style.display = '';
+    box.innerHTML = `<img src="${draft[side].img}" alt="">`;
+    if(clearBtn) clearBtn.style.display = '';
+  } else {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    if(clearBtn) clearBtn.style.display = 'none';
+  }
 }
 
 function openCardEditor(deckId, cardId){
