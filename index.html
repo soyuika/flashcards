@@ -99,8 +99,21 @@
   .stat{display:flex; flex-direction:column; min-width:70px}
   .stat b{font-size:24px; line-height:1.1}
   .stat span{font-size:12px; color:var(--muted)}
-  .stat.new b{color:var(--accent)}
+    .stat.new b{color:var(--accent)}
   .good{color:var(--good)} .bad{color:var(--bad)}
+
+  .pace{
+    background:var(--accent-soft);
+    color:var(--accent);
+    border:1px solid #ccd3ff;
+    border-radius:12px;
+    padding:10px 14px;
+    font-size:13.5px;
+    font-weight:600;
+    line-height:1.4;
+    margin:0 0 14px;
+  }
+  .pace b{color:var(--accent); font-weight:800}
 
   .opts{display:flex; flex-direction:column; gap:14px; margin-bottom:18px}
   .seg{display:inline-flex; flex-wrap:wrap; gap:6px; background:#f2f3f9; padding:4px; border-radius:12px}
@@ -328,8 +341,10 @@ function loadState(){
         // Daily "add cards" goal (0 = off) + per-day log of how many cards were added
     d.addGoal = (typeof d.addGoal === 'number' && d.addGoal >= 0) ? d.addGoal : 0;
     d.addedLog = d.addedLog || {};
-    // Per-day log of how many distinct cards were studied in this deck
+        // Per-day log of how many distinct cards were studied in this deck
     d.studiedLog = d.studiedLog || {};
+    // Info about the last "transferred into Anki" purge, e.g. { date, count } or null
+    d.lastTransfer = d.lastTransfer || null;
   });
   return s;
 }
@@ -524,7 +539,7 @@ function renderDeck(){
           <div class="stat new"><b>${newCount}</b><span>not studied yet</span></div>
           <div class="stat"><b>${learned}</b><span>studied</span></div>
         </div>
-        ${paceLine(d) ? `<div class="muted small" style="margin:-4px 0 14px">${paceLine(d)}</div>` : ''}
+                ${paceLine(d) ? `<div class="pace">${paceLine(d)}</div>` : ''}
         <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
         <div class="habit">${habitStripHTML(d)}</div>
         ${d.addGoal > 0 ? (() => {
@@ -538,6 +553,24 @@ function renderDeck(){
               </span>
             </div>`;
         })() : ''}
+            </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>📤 Transferred into Anki</h2>
+        </div>
+        <p class="muted small" style="margin-top:0">
+          Once you've moved a day's newly-added cards into Anki, clear them from this deck
+          so they don't pile up here.
+        </p>
+        <div class="row">
+          <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
+          <span class="muted small">
+            ${d.lastTransfer
+              ? `Last transfer: ${esc(d.lastTransfer.date)} · removed ${d.lastTransfer.count} card${d.lastTransfer.count === 1 ? '' : 's'}`
+              : 'Nothing transferred yet'}
+          </span>
+        </div>
       </section>
 
       <section class="panel">
@@ -666,8 +699,8 @@ function paceLine(deck){
   if(n === 0) return '';
   const week  = n * 7;
   const month = n * 30;
-  return '📈 If you keep this pace (' + n + ' card' + (n === 1 ? '' : 's') + '/day), '
-       + 'you\u2019ll cover ~' + week + ' this week and ~' + month + ' this month.';
+  return '📈 If you keep this pace (<b>' + n + '</b> card' + (n === 1 ? '' : 's') + '/day), '
+       + 'you\u2019ll cover ~<b>' + week + '</b> this week and ~<b>' + month + '</b> this month.';
 }
 
 /* =========================================================
@@ -762,6 +795,84 @@ function openDeckSettings(deckId){
       state.decks = state.decks.filter(x => x.id !== d.id);
       saveState(); closeModal();
       view = { name: 'home', deckId: null };
+      render();
+    };
+  });
+}
+
+/* =========================================================
+   TRANSFER TO ANKI (delete cards added on a chosen day)
+   ========================================================= */
+function openTransferModal(deckId){
+  const d = getDeck(deckId);
+  if(!d) return;
+  const today = dayKey();
+
+  openModal(`
+    <h2>📤 Transferred into Anki</h2>
+    <p class="muted small" style="margin-top:0">
+      Pick the day whose newly-added cards you've now moved into Anki.
+      They'll be removed from this deck so they don't pile up here.
+    </p>
+    <label class="field"><span>Date the cards were added</span>
+      <input type="date" id="tr-date" value="${today}" max="${today}">
+    </label>
+    <p class="small" id="tr-preview"></p>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="tr-cancel">Cancel</button>
+      <button class="btn danger" id="tr-delete" disabled>Delete those cards</button>
+    </div>
+  `, root => {
+    const dateEl    = root.querySelector('#tr-date');
+    const previewEl = root.querySelector('#tr-preview');
+    const delBtn    = root.querySelector('#tr-delete');
+
+    function updatePreview(){
+      const date = dateEl.value;
+      if(!date){
+        previewEl.innerHTML = '';
+        delBtn.disabled = true;
+        return;
+      }
+      const matching = d.cards.filter(c => c.addedAt === date);
+      const noDate   = d.cards.filter(c => !c.addedAt).length;
+
+      if(matching.length === 0){
+        previewEl.innerHTML = '<span class="muted">No cards were added on this date.</span>';
+        delBtn.disabled = true;
+      } else {
+        previewEl.innerHTML = 'This will remove <b>' + matching.length + '</b> card'
+          + (matching.length === 1 ? '' : 's') + ' added on ' + date + '.';
+        delBtn.disabled = false;
+      }
+      if(noDate > 0){
+        previewEl.innerHTML += ' <span class="muted">(' + noDate + ' older card'
+          + (noDate === 1 ? '' : 's') + ' without a date will be kept.)</span>';
+      }
+    }
+
+    dateEl.oninput = updatePreview;
+    updatePreview();
+
+    root.querySelector('#tr-cancel').onclick = closeModal;
+
+    delBtn.onclick = () => {
+      const date = dateEl.value;
+      const before = d.cards.length;
+      d.cards = d.cards.filter(c => c.addedAt !== date);
+      const removed = before - d.cards.length;
+      if(removed === 0){ closeModal(); return; }
+
+      // Keep today's "cards added" pill consistent
+      if(d.addedLog && d.addedLog[date]){
+        d.addedLog[date] = Math.max(0, d.addedLog[date] - removed);
+        if(d.addedLog[date] === 0) delete d.addedLog[date];
+      }
+
+      d.lastTransfer = { date: date, count: removed };
+      saveState();
+      closeModal();
       render();
     };
   });
@@ -1284,7 +1395,7 @@ function renderResults(deck){
           <div class="stat"><b class="bad">${session.wrong}</b><span>wrong</span></div>
                     <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
         </div>
-        ${paceLine(deck) ? `<p class="small" style="margin:0 0 6px">${paceLine(deck)}</p>` : ''}
+                ${paceLine(deck) ? `<div class="pace" style="margin-top:8px">${paceLine(deck)}</div>` : ''}
         <div class="modal-actions">
           <button class="btn" data-act="tick-today">✓ Mark today's drill (${done}/${goal})</button>
           <span class="spacer"></span>
@@ -1366,8 +1477,12 @@ document.addEventListener('click', e => {
       tickDay(id, el.dataset.date);
       break;
 
-    case 'deck-settings':
+        case 'deck-settings':
       openDeckSettings(id || view.deckId);
+      break;
+
+    case 'transfer-anki':
+      openTransferModal(id || view.deckId);
       break;
 
     case 'new-card':
