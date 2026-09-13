@@ -437,8 +437,9 @@ function render(){
 function renderHome(){
   const decks = state.decks;
   app.innerHTML = `
-    <header class="topbar">
+        <header class="topbar">
       <div class="brand"><span class="logo">🗣️</span> LinguaDrill</div>
+      <button class="btn" data-act="import-deck">📥 Import</button>
       <button class="btn primary" data-act="new-deck">+ New deck</button>
     </header>
     <main class="wrap">
@@ -526,9 +527,10 @@ function renderDeck(){
   }
 
   app.innerHTML = `
-    <header class="topbar">
+        <header class="topbar">
       <button class="btn ghost" data-act="home">← Decks</button>
       <div class="brand small">${esc(d.name)}</div>
+      <button class="btn ghost" data-act="export-deck" data-id="${d.id}" title="Export this deck">📤</button>
       <button class="btn ghost" data-act="deck-settings" data-id="${d.id}" title="Deck settings">⚙️</button>
     </header>
     <main class="wrap">
@@ -707,6 +709,213 @@ function paceLine(deck){
   const month = n * 30;
   return '📈 If you keep this pace (<b>' + n + '</b> card' + (n === 1 ? '' : 's') + '/day), '
        + 'you\u2019ll cover ~<b>' + week + '</b> this week and ~<b>' + month + '</b> this month.';
+}
+
+/* =========================================================
+   EXPORT / IMPORT
+   ========================================================= */
+function cardKey(c){
+  const f = c.front || {}, b = c.back || {};
+  const ft = (f.text || '').trim().toLowerCase();
+  const bt = (b.text || '').trim().toLowerCase();
+  // Image-only cards fall back to comparing image data so distinct ones aren't merged
+  if(!ft && !bt){
+    return 'img:' + (f.img || '') + '|' + (b.img || '');
+  }
+  return ft + '\u0001' + bt;
+}
+
+function countAdditions(target, incoming){
+  const existing = new Set(target.cards.map(cardKey));
+  let toAdd = 0, skipped = 0;
+  incoming.forEach(c => {
+    const k = cardKey(c);
+    if(existing.has(k)) skipped++;
+    else { existing.add(k); toAdd++; }
+  });
+  return { toAdd, skipped };
+}
+
+function exportDeck(deckId){
+  const d = getDeck(deckId);
+  if(!d) return;
+  const payload = {
+    linguadrill: 1,
+    exportedAt: new Date().toISOString(),
+    deck: d
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (d.name || 'deck').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'deck';
+  a.href = url;
+  a.download = 'linguadrill_' + safeName + '_' + dayKey() + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function importDeckFlow(){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.onchange = () => {
+    const f = input.files && input.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(reader.result);
+      } catch(err){
+        alert('That file is not valid JSON.');
+        return;
+      }
+      const deck = (parsed && parsed.deck) ? parsed.deck : parsed;
+      if(!deck || typeof deck !== 'object' || !Array.isArray(deck.cards)){
+        alert('That file doesn\u2019t look like a LinguaDrill deck export.');
+        return;
+      }
+      openImportModal(deck, f.name);
+    };
+    reader.onerror = () => alert('Could not read that file.');
+    reader.readAsText(f);
+  };
+  input.click();
+}
+
+function openImportModal(deck, fileName){
+  // Regenerate ids so imported cards never collide with existing ones
+  const incomingCards = deck.cards.map(c => ({
+    id: uid(),
+    front: c.front || { text: '', img: null },
+    back:  c.back  || { text: '', img: null },
+    studied: !!c.studied,
+    reviews: c.reviews || 0,
+    correct: c.correct || 0,
+    addedAt: c.addedAt || null,
+    lastStudied: c.lastStudied || null
+  }));
+
+  const hasExisting = state.decks.length > 0;
+  const defaultMode = hasExisting ? 'merge' : 'new';
+
+  openModal(`
+    <h2>📥 Import deck</h2>
+    <p class="muted small" style="margin-top:0">
+      From file: <b>${esc(fileName)}</b><br>
+      Deck: <b>${esc(deck.name || 'Untitled')}</b> · ${incomingCards.length} card${incomingCards.length === 1 ? '' : 's'}
+    </p>
+
+    <div class="opts" style="gap:10px">
+      <label class="check">
+        <input type="radio" name="imp-mode" value="new" ${defaultMode === 'new' ? 'checked' : ''}>
+        Create as a new deck
+      </label>
+      ${hasExisting ? `
+      <label class="check">
+        <input type="radio" name="imp-mode" value="merge" ${defaultMode === 'merge' ? 'checked' : ''}>
+        Merge into an existing deck
+      </label>` : ''}
+    </div>
+
+    <div id="imp-new-block" style="display:${defaultMode === 'new' ? '' : 'none'}">
+      <label class="field"><span>New deck name</span>
+        <input id="imp-name" value="${esc(deck.name || 'Imported deck')}">
+      </label>
+    </div>
+
+    ${hasExisting ? `
+    <div id="imp-merge-block" style="display:${defaultMode === 'merge' ? '' : 'none'}">
+      <label class="field"><span>Merge into</span>
+        <select id="imp-target">
+          ${state.decks.map(d => `<option value="${d.id}">${esc(d.name)} — ${d.cards.length} card${d.cards.length === 1 ? '' : 's'}</option>`).join('')}
+        </select>
+      </label>
+      <p class="muted small" id="imp-preview"></p>
+    </div>` : ''}
+
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="imp-cancel">Cancel</button>
+      <button class="btn primary" id="imp-go">Import</button>
+    </div>
+  `, root => {
+    const newRadio   = root.querySelector('input[value="new"]');
+    const mergeRadio = root.querySelector('input[value="merge"]');
+    const newBlock   = root.querySelector('#imp-new-block');
+    const mergeBlock = root.querySelector('#imp-merge-block');
+    const targetSel  = root.querySelector('#imp-target');
+    const previewEl  = root.querySelector('#imp-preview');
+
+    function updatePreview(){
+      if(!targetSel || !previewEl) return;
+      const t = getDeck(targetSel.value);
+      if(!t){ previewEl.textContent = ''; return; }
+      const { toAdd, skipped } = countAdditions(t, incomingCards);
+      previewEl.innerHTML = `<b>${toAdd}</b> new card${toAdd === 1 ? '' : 's'} will be added`
+        + (skipped > 0 ? ` · <b>${skipped}</b> duplicate${skipped === 1 ? '' : 's'} skipped` : '') + '.';
+    }
+
+    function updateVisibility(){
+      const mode = (mergeRadio && mergeRadio.checked) ? 'merge' : 'new';
+      if(newBlock)   newBlock.style.display   = mode === 'new'   ? '' : 'none';
+      if(mergeBlock) mergeBlock.style.display = mode === 'merge' ? '' : 'none';
+      updatePreview();
+    }
+
+    [newRadio, mergeRadio].forEach(r => { if(r) r.onchange = updateVisibility; });
+    if(targetSel) targetSel.onchange = updatePreview;
+    updateVisibility();
+
+    root.querySelector('#imp-cancel').onclick = closeModal;
+
+    root.querySelector('#imp-go').onclick = () => {
+      const mode = (mergeRadio && mergeRadio.checked) ? 'merge' : 'new';
+
+      if(mode === 'new'){
+        const name = (root.querySelector('#imp-name').value || '').trim() || 'Imported deck';
+        const newDeck = {
+          id: uid(),
+          name: name,
+          lang: deck.lang || 'en-US',
+          goal: deck.goal || 3,
+          addGoal: deck.addGoal || 0,
+          addedLog: deck.addedLog || {},
+          createdAt: Date.now(),
+          habit: deck.habit || {},
+          cards: incomingCards,
+          studyRange: { enabled: false, from: null, to: null },
+          studiedLog: deck.studiedLog || {},
+          lastTransfer: null
+        };
+        state.decks.push(newDeck);
+        saveState();
+        closeModal();
+        view = { name: 'deck', deckId: newDeck.id };
+        render();
+      } else {
+        const t = getDeck(targetSel.value);
+        if(!t){ closeModal(); return; }
+        const existingKeys = new Set(t.cards.map(cardKey));
+        let added = 0, skipped = 0;
+        incomingCards.forEach(c => {
+          const k = cardKey(c);
+          if(existingKeys.has(k)){ skipped++; return; }
+          existingKeys.add(k);
+          t.cards.push(c);
+          added++;
+        });
+        saveState();
+        closeModal();
+        alert('Added ' + added + ' card' + (added === 1 ? '' : 's')
+            + (skipped > 0 ? ' (' + skipped + ' duplicate' + (skipped === 1 ? '' : 's') + ' skipped)' : '')
+            + ' to "' + t.name + '".');
+        render();
+      }
+    };
+  });
 }
 
 /* =========================================================
@@ -1534,8 +1743,16 @@ document.addEventListener('click', e => {
   const id = el.dataset.id;
 
   switch(act){
-    case 'new-deck':
+        case 'new-deck':
       openNewDeck();
+      break;
+
+    case 'export-deck':
+      exportDeck(id || view.deckId);
+      break;
+
+    case 'import-deck':
+      importDeckFlow();
       break;
 
     case 'open-deck':
