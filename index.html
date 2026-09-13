@@ -222,6 +222,36 @@
   .file-btn{cursor:pointer}
   .results .stats{gap:26px}
 
+    /* ---------- desktop two-column deck layout ---------- */
+  @media (min-width: 900px){
+    .wrap.deck-view{
+      max-width: 1180px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+      padding-top: 18px;
+    }
+    .wrap.deck-view > .panel{
+      margin-bottom: 0;
+      padding: 16px 18px;
+    }
+    .wrap.deck-view > .panel.span-2{
+      grid-column: 1 / -1;
+    }
+    .wrap.deck-view .panel-head h2,
+    .wrap.deck-view > .panel > h2{
+      font-size: 15.5px;
+      margin-bottom: 8px;
+    }
+    .wrap.deck-view .opts{ gap: 11px; margin-bottom: 14px }
+    .wrap.deck-view .label{ margin-bottom: 5px }
+    .wrap.deck-view .pace{ padding: 9px 12px; font-size: 13px }
+    .wrap.deck-view .stats{ gap: 18px; margin-bottom: 12px }
+    .wrap.deck-view .stat b{ font-size: 22px }
+    .wrap.deck-view .habit-cell{ width: 34px; height: 42px }
+  }
+
   @media (max-width:640px){
     .editor-grid{grid-template-columns:1fr}
     .options{grid-template-columns:1fr}
@@ -533,10 +563,10 @@ function renderDeck(){
       <button class="btn ghost" data-act="export-deck" data-id="${d.id}" title="Export this deck">📤</button>
       <button class="btn ghost" data-act="deck-settings" data-id="${d.id}" title="Deck settings">⚙️</button>
     </header>
-    <main class="wrap">
+        <main class="wrap deck-view">
 
       <section class="panel">
-                <div class="stats">
+        <div class="stats">
           <div class="stat"><b>${total}</b><span>cards</span></div>
           <div class="stat new"><b>${newCount}</b><span>not studied yet</span></div>
           <div class="stat"><b>${learned}</b><span>studied</span></div>
@@ -562,26 +592,7 @@ function renderDeck(){
         })() : ''}
             </section>
 
-      <section class="panel">
-        <div class="panel-head">
-          <h2>📤 Transferred into Anki</h2>
-        </div>
-        <p class="muted small" style="margin-top:0">
-          Once you've moved a day's newly-added cards into Anki, clear them from this deck
-          so they don't pile up here.
-        </p>
-                <div class="row">
-          <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
-          ${d.lastTransfer ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>` : ''}
-          <span class="muted small">
-            ${d.lastTransfer
-              ? `Last transfer: ${esc(d.lastTransfer.date)} · removed ${d.lastTransfer.count} card${d.lastTransfer.count === 1 ? '' : 's'}`
-              : 'Nothing transferred yet'}
-          </span>
-        </div>
-      </section>
-
-      <section class="panel">
+<section class="panel">
         <h2>Start drilling</h2>
         <div class="opts">
           <div>
@@ -636,7 +647,26 @@ function renderDeck(){
         ${total === 0 ? '<p class="muted small" style="margin-top:10px">Add at least one card to start.</p>' : ''}
       </section>
 
-      <section class="panel">
+            <section class="panel span-2">
+        <div class="panel-head">
+          <h2>📤 Transferred into Anki</h2>
+        </div>
+        <p class="muted small" style="margin-top:0">
+          Once you've moved a day's newly-added cards into Anki, clear them from this deck
+          so they don't pile up here.
+        </p>
+                <div class="row">
+          <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
+          ${d.lastTransfer ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>` : ''}
+          <span class="muted small">
+            ${d.lastTransfer
+              ? `Last transfer: ${esc(d.lastTransfer.date)} · removed ${d.lastTransfer.count} card${d.lastTransfer.count === 1 ? '' : 's'}`
+              : 'Nothing transferred yet'}
+          </span>
+        </div>
+      </section>
+
+            <section class="panel span-2">
         <div class="panel-head">
           <h2>Cards (${total})</h2>
           <button class="btn primary" data-act="new-card">+ Add card</button>
