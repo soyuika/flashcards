@@ -563,8 +563,9 @@ function renderDeck(){
           Once you've moved a day's newly-added cards into Anki, clear them from this deck
           so they don't pile up here.
         </p>
-        <div class="row">
+                <div class="row">
           <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
+          ${d.lastTransfer ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>` : ''}
           <span class="muted small">
             ${d.lastTransfer
               ? `Last transfer: ${esc(d.lastTransfer.date)} · removed ${d.lastTransfer.count} card${d.lastTransfer.count === 1 ? '' : 's'}`
@@ -857,20 +858,36 @@ function openTransferModal(deckId){
 
     root.querySelector('#tr-cancel').onclick = closeModal;
 
-    delBtn.onclick = () => {
+        delBtn.onclick = () => {
       const date = dateEl.value;
-      const before = d.cards.length;
-      d.cards = d.cards.filter(c => c.addedAt !== date);
-      const removed = before - d.cards.length;
+
+      // Collect the cards we're about to remove, along with their original
+      // positions, so we can put them back if the user asks to undo.
+      const removedCards = [];
+      d.cards = d.cards.filter((c, index) => {
+        if(c.addedAt === date){
+          removedCards.push({ card: c, index: index });
+          return false;
+        }
+        return true;
+      });
+      const removed = removedCards.length;
       if(removed === 0){ closeModal(); return; }
 
       // Keep today's "cards added" pill consistent
+      let logDelta = 0;
       if(d.addedLog && d.addedLog[date]){
+        logDelta = Math.min(d.addedLog[date], removed);
         d.addedLog[date] = Math.max(0, d.addedLog[date] - removed);
         if(d.addedLog[date] === 0) delete d.addedLog[date];
       }
 
-      d.lastTransfer = { date: date, count: removed };
+      d.lastTransfer = {
+        date: date,
+        count: removed,
+        removedCards: removedCards,   // { card, index } pairs
+        logDelta: logDelta            // how much we subtracted from that day's log
+      };
       saveState();
       closeModal();
       render();
@@ -1481,9 +1498,36 @@ document.addEventListener('click', e => {
       openDeckSettings(id || view.deckId);
       break;
 
-    case 'transfer-anki':
+        case 'transfer-anki':
       openTransferModal(id || view.deckId);
       break;
+
+    case 'undo-transfer': {
+      const d = getDeck(id || view.deckId);
+      if(!d || !d.lastTransfer || !d.lastTransfer.removedCards) break;
+      const { date, removedCards, logDelta, count } = d.lastTransfer;
+
+      if(!confirm('Restore ' + count + ' card' + (count === 1 ? '' : 's')
+                + ' that were transferred on ' + date + '?')) break;
+
+      // Put the cards back in their original positions, lowest index first
+      const sorted = removedCards.slice().sort((a, b) => a.index - b.index);
+      for(const item of sorted){
+        const at = Math.min(item.index, d.cards.length);
+        d.cards.splice(at, 0, item.card);
+      }
+
+      // Restore the day's "added" counter
+      if(logDelta > 0){
+        d.addedLog = d.addedLog || {};
+        d.addedLog[date] = (d.addedLog[date] || 0) + logDelta;
+      }
+
+      d.lastTransfer = null;
+      saveState();
+      render();
+      break;
+    }
 
     case 'new-card':
       openCardEditor(view.deckId, null);
