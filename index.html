@@ -783,6 +783,8 @@ function openCardEditor(deckId, cardId){
     ? JSON.parse(JSON.stringify(existing))
     : { id: null, front: { text: '', img: null }, back: { text: '', img: null }, studied: false };
 
+  let sessionAdded = 0;   // cards added in *this* modal session
+
   openModal(`
     <h2>${existing ? 'Edit card' : 'New card'}</h2>
     <div class="editor-grid">
@@ -790,10 +792,15 @@ function openCardEditor(deckId, cardId){
       ${sideEditorHTML('back', 'Back')}
     </div>
     <div class="modal-actions">
-      ${existing ? '<button class="btn danger" id="ce-del">Delete card</button>' : ''}
+      ${existing
+        ? '<button class="btn danger" id="ce-del">Delete card</button>'
+        : '<span class="muted small" id="ce-count"></span>'}
       <span class="spacer"></span>
-      <button class="btn" id="ce-cancel">Cancel</button>
-      <button class="btn primary" id="ce-save">Save</button>
+      ${existing
+        ? '<button class="btn" id="ce-cancel">Cancel</button>' +
+          '<button class="btn primary" id="ce-save">Save</button>'
+        : '<button class="btn" id="ce-done">Done</button>' +
+          '<button class="btn primary" id="ce-save">Save &amp; next</button>'}
     </div>
   `, root => {
     ['front', 'back'].forEach(side => {
@@ -821,7 +828,31 @@ function openCardEditor(deckId, cardId){
       };
     });
 
-    root.querySelector('#ce-cancel').onclick = closeModal;
+    function updateCount(){
+      const c = root.querySelector('#ce-count');
+      if(c) c.textContent = sessionAdded > 0
+        ? '✓ ' + sessionAdded + ' card' + (sessionAdded === 1 ? '' : 's') + ' added'
+        : '';
+    }
+
+    function resetForm(){
+      draft.front = { text: '', img: null };
+      draft.back  = { text: '', img: null };
+      ['front', 'back'].forEach(side => {
+        const ta = root.querySelector('textarea[data-side="' + side + '"]');
+        if(ta) ta.value = '';
+        renderPreview(root, side, draft);
+      });
+      // Keep the keyboard up on mobile so you can keep typing
+      const frontTa = root.querySelector('textarea[data-side="front"]');
+      if(frontTa) frontTa.focus();
+    }
+
+    const doneBtn = root.querySelector('#ce-done');
+    if(doneBtn) doneBtn.onclick = () => { closeModal(); render(); };
+
+    const cancelBtn = root.querySelector('#ce-cancel');
+    if(cancelBtn) cancelBtn.onclick = closeModal;
 
     root.querySelector('#ce-save').onclick = () => {
       const empty = s => !s.text.trim() && !s.img;
@@ -829,30 +860,39 @@ function openCardEditor(deckId, cardId){
         alert('Please add some text or an image to at least one side.');
         return;
       }
-                  if(existing){
+
+      // ---------- Edit mode: save and close (unchanged behaviour) ----------
+      if(existing){
         existing.front = draft.front;
         existing.back = draft.back;
-      } else {
-        deck.cards.push({
-          id: uid(),
-          front: draft.front,
-          back: draft.back,
-          studied: false,
-          reviews: 0,
-          correct: 0,
-          addedAt: dayKey()               // <-- remembers which day it was added
-        });
-        // Log "cards added today" for the deck's add-goal tracker
-        deck.addedLog = deck.addedLog || {};
-        const todayKey = dayKey();
-        deck.addedLog[todayKey] = (deck.addedLog[todayKey] || 0) + 1;
+        saveState();
+        closeModal();
+        render();
+        return;
       }
+
+      // ---------- New card: save and stay open for the next one ----------
+      deck.cards.push({
+        id: uid(),
+        front: { text: draft.front.text, img: draft.front.img },
+        back:  { text: draft.back.text,  img: draft.back.img  },
+        studied: false,
+        reviews: 0,
+        correct: 0,
+        addedAt: dayKey()
+      });
+      deck.addedLog = deck.addedLog || {};
+      const todayKey = dayKey();
+      deck.addedLog[todayKey] = (deck.addedLog[todayKey] || 0) + 1;
       saveState();
-      closeModal();
-      render();
+
+      sessionAdded++;
+      render();        // refresh the deck behind the modal
+      resetForm();     // clear fields + refocus front textarea
+      updateCount();   // bump the "✓ N cards added" hint
     };
 
-        if(existing){
+    if(existing){
       root.querySelector('#ce-del').onclick = () => {
         if(!confirm('Delete this card?')) return;
         deck.cards = deck.cards.filter(c => c.id !== existing.id);
