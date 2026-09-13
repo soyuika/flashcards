@@ -325,9 +325,11 @@ function loadState(){
     if(typeof d.studyRange.enabled !== 'boolean') d.studyRange.enabled = false;
     if(typeof d.studyRange.from !== 'number') d.studyRange.from = null;
         if(typeof d.studyRange.to !== 'number')   d.studyRange.to   = null;
-    // Daily "add cards" goal (0 = off) + per-day log of how many cards were added
+        // Daily "add cards" goal (0 = off) + per-day log of how many cards were added
     d.addGoal = (typeof d.addGoal === 'number' && d.addGoal >= 0) ? d.addGoal : 0;
     d.addedLog = d.addedLog || {};
+    // Per-day log of how many distinct cards were studied in this deck
+    d.studiedLog = d.studiedLog || {};
   });
   return s;
 }
@@ -517,12 +519,13 @@ function renderDeck(){
     <main class="wrap">
 
       <section class="panel">
-        <div class="stats">
+                <div class="stats">
           <div class="stat"><b>${total}</b><span>cards</span></div>
           <div class="stat new"><b>${newCount}</b><span>not studied yet</span></div>
           <div class="stat"><b>${learned}</b><span>studied</span></div>
         </div>
-                <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
+        ${paceLine(d) ? `<div class="muted small" style="margin:-4px 0 14px">${paceLine(d)}</div>` : ''}
+        <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
         <div class="habit">${habitStripHTML(d)}</div>
         ${d.addGoal > 0 ? (() => {
           const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
@@ -652,6 +655,19 @@ function cardRowHTML(c, index){
         <button class="icon-btn" data-act="del-card" data-id="${c.id}" title="Delete">🗑️</button>
       </div>
     </div>`;
+}
+
+/* =========================================================
+   FUTURE PREDICTION ("pace" line)
+   ========================================================= */
+function paceLine(deck){
+  const today = dayKey();
+  const n = (deck.studiedLog && deck.studiedLog[today]) || 0;
+  if(n === 0) return '';
+  const week  = n * 7;
+  const month = n * 30;
+  return '📈 If you keep this pace (' + n + ' card' + (n === 1 ? '' : 's') + '/day), '
+       + 'you\u2019ll cover ~' + week + ' this week and ~' + month + ' this month.';
 }
 
 /* =========================================================
@@ -1192,6 +1208,14 @@ function recordAnswer(ok){
     card.studied = true;
     card.reviews = (card.reviews || 0) + 1;
     if(ok) card.correct = (card.correct || 0) + 1;
+
+    // Bump today's "distinct cards studied" counter, but only once per card per day
+    const today = dayKey();
+    if(card.lastStudied !== today){
+      card.lastStudied = today;
+      deck.studiedLog = deck.studiedLog || {};
+      deck.studiedLog[today] = (deck.studiedLog[today] || 0) + 1;
+    }
   }
   session.answered++;
   if(ok) session.right++; else session.wrong++;
@@ -1258,8 +1282,9 @@ function renderResults(deck){
           <div class="stat"><b>${total}</b><span>cards answered</span></div>
           <div class="stat"><b class="good">${session.right}</b><span>right</span></div>
           <div class="stat"><b class="bad">${session.wrong}</b><span>wrong</span></div>
-          <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
+                    <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
         </div>
+        ${paceLine(deck) ? `<p class="small" style="margin:0 0 6px">${paceLine(deck)}</p>` : ''}
         <div class="modal-actions">
           <button class="btn" data-act="tick-today">✓ Mark today's drill (${done}/${goal})</button>
           <span class="spacer"></span>
