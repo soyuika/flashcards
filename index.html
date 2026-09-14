@@ -1312,11 +1312,18 @@ function openCardEditor(deckId, cardId){
       };
     });
 
-    function updateCount(){
+        function updateCount(){
       const c = root.querySelector('#ce-count');
-      if(c) c.textContent = sessionAdded > 0
-        ? '✓ ' + sessionAdded + ' card' + (sessionAdded === 1 ? '' : 's') + ' added'
-        : '';
+      if(!c) return;
+      const todayKey = dayKey();
+      const todayCount = (deck.addedLog && deck.addedLog[todayKey]) || 0;
+      const goalPart = (deck.addGoal > 0) ? '/' + deck.addGoal : '';
+      const parts = [];
+      if(sessionAdded > 0){
+        parts.push('✓ ' + sessionAdded + ' this session');
+      }
+      parts.push('📝 ' + todayCount + goalPart + ' added today');
+      c.textContent = parts.join(' · ');
     }
 
     function resetForm(){
@@ -1335,8 +1342,10 @@ function openCardEditor(deckId, cardId){
     const doneBtn = root.querySelector('#ce-done');
     if(doneBtn) doneBtn.onclick = () => { closeModal(); render(); };
 
-    const cancelBtn = root.querySelector('#ce-cancel');
+        const cancelBtn = root.querySelector('#ce-cancel');
     if(cancelBtn) cancelBtn.onclick = closeModal;
+
+    updateCount();   // show today's running total immediately
 
     root.querySelector('#ce-save').onclick = () => {
       const empty = s => !s.text.trim() && !s.img;
