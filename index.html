@@ -817,15 +817,8 @@ function renderDeck(){
 <section class="panel panel-transferred">
         <div class="panel-head">
           <h2>📤 Transferred into Anki</h2>
-          <button class="icon-btn" data-act="toggle-collapse" data-id="collapseTransferred" title="Collapse / expand">${s.collapseTransferred ? '▸' : '▾'}</button>
         </div>
-        <div class="collapse-body" style="${s.collapseTransferred ? 'display:none' : ''}">
-        <p class="muted small" style="margin-top:0">
-          Once you've moved a day's newly-added cards into Anki, clear them from this deck
-          so they don't pile up here.
-        </p>
-        </div>
-                <div class="row">
+        <div class="row">
                     <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
           ${(d.lastTransfer && d.lastTransfer.removedCards)
             ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>`
