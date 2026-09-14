@@ -1292,22 +1292,16 @@ function openTransferModal(deckId){
         }
         return true;
       });
-      const removed = removedCards.length;
+            const removed = removedCards.length;
       if(removed === 0){ closeModal(); return; }
 
-      // Keep today's "cards added" pill consistent
-      let logDelta = 0;
-      if(d.addedLog && d.addedLog[date]){
-        logDelta = Math.min(d.addedLog[date], removed);
-        d.addedLog[date] = Math.max(0, d.addedLog[date] - removed);
-        if(d.addedLog[date] === 0) delete d.addedLog[date];
-      }
-
+      // Transferred cards still count as "added today" — you did add them.
+      // We no longer touch d.addedLog here.
       d.lastTransfer = {
         date: date,
         count: removed,
         removedCards: removedCards,   // { card, index } pairs
-        logDelta: logDelta            // how much we subtracted from that day's log
+        logDelta: 0                   // kept for backwards compat; no subtraction happens
       };
       saveState();
       closeModal();
