@@ -41,7 +41,9 @@
   .btn.good:hover{background:#0e8a44}
   .btn.bad{background:#fff; border-color:#f0b9bb; color:var(--bad)}
   .btn.bad:hover{background:var(--bad-soft)}
-  .btn.danger{color:var(--bad); border-color:#f3c9c9; background:#fff}
+    .btn.danger{color:var(--bad); border-color:#f3c9c9; background:#fff}
+  .btn.done{background:var(--good-soft); border-color:#b6e5cb; color:var(--good); font-weight:700}
+  .btn.done:hover{background:#d9f2e3; border-color:#9ddbb6}
   .btn:disabled{opacity:.45; cursor:not-allowed}
   .icon-btn{background:transparent;border:none;font-size:16px;padding:6px;border-radius:8px;line-height:1}
   .icon-btn:hover{background:#f0f1f7}
@@ -562,7 +564,7 @@ function deckCardHTML(d, index){
       <div class="habit">${habitStripHTML(d)}</div>
       <div class="row">
         <button class="btn primary" data-act="open-deck" data-id="${d.id}">Open</button>
-        <button class="btn" data-act="tick-day" data-id="${d.id}" data-date="${today}">✓ ${count}/${goal} today</button>
+                <button class="btn ${count >= goal ? 'done' : ''}" data-act="tick-day" data-id="${d.id}" data-date="${today}">✓ ${count}/${goal} today</button>
         <button class="btn ghost" data-act="del-deck" data-id="${d.id}" title="Delete deck">🗑️</button>
       </div>
     </div>`;
