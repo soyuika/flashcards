@@ -334,7 +334,34 @@
     font-size: 15.5px;
     margin-bottom: 8px;
   }
-  .wrap.deck-view .opts{ gap: 10px; margin-bottom: 12px }
+    .wrap.deck-view .opts{ gap: 10px; margin-bottom: 12px }
+
+  /* On desktop, lay out the drill options as a compact 2-column grid:
+     label in the left column, controls in the right column.
+     Mobile keeps the stacked layout (media query below is min-width). */
+  @media (min-width: 901px){
+    .wrap.deck-view .opts{
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      column-gap: 14px;
+      row-gap: 8px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .wrap.deck-view .opts > div{ display: contents }
+    .wrap.deck-view .opts > div > .label{
+      grid-column: 1;
+      margin-bottom: 0;
+      align-self: center;
+    }
+    .wrap.deck-view .opts > div > :not(.label){
+      grid-column: 2;
+      min-width: 0;
+    }
+    .wrap.deck-view .opts > div > p{
+      margin: 2px 0 0;
+    }
+  }
   .wrap.deck-view .label{ margin-bottom: 4px }
   .wrap.deck-view .pace{ padding: 8px 11px; font-size: 12.5px }
   .wrap.deck-view .stats{ gap: 18px; margin-bottom: 10px }
