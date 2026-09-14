@@ -331,7 +331,7 @@
   .wrap.deck-view .seg-btn{ padding: 7px 11px; font-size: 13px }
   .wrap.deck-view .check{ margin: 4px 0 }
 
-    @media (max-width: 900px){
+        @media (max-width: 900px){
     .deck-cols{
       flex-direction: column;
       align-items: stretch;
@@ -344,6 +344,25 @@
     .panel-drill       { order: 2; }
     .panel-transferred { order: 3; }
     .panel-cards       { order: 4; }
+
+    /* Transferred panel: primary button full width,
+       secondary buttons side-by-side, note on its own line. */
+    .panel-transferred .row{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .panel-transferred .row > .btn.primary{
+      grid-column: 1 / -1;
+    }
+    .panel-transferred .row > .muted.small{
+      grid-column: 1 / -1;
+      margin-top: 4px;
+    }
+    .panel-transferred .row > .btn{
+      padding: 9px 10px;
+      font-size: 13px;
+    }
   }
 
     @media (max-width:640px){
