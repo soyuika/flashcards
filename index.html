@@ -198,8 +198,20 @@
   .row-actions{display:flex; align-items:center; gap:2px; flex-shrink:0}
   .dot{width:8px; height:8px; border-radius:50%; background:var(--accent); margin-right:6px}
 
-  .session-bar{align-items:center}
-  .session-info{flex:1; text-align:center; min-width:0}
+    .session-bar{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+  .session-info{ text-align: center; min-width: 0 }
+  .session-actions{
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
   .clock-row{display:flex; gap:12px; justify-content:center; align-items:baseline; margin-top:2px}
   .clock{font-weight:800; font-size:16px; font-variant-numeric:tabular-nums}
   .timer{font-size:13px; color:var(--accent); font-weight:700; font-variant-numeric:tabular-nums}
@@ -2174,15 +2186,17 @@ function renderSession(){
             ${session.paused ? '<span class="timer" style="color:var(--muted)">⏸ paused</span>' : ''}
           </div>` : ''}
       </div>
-                        <button class="btn ghost small" data-act="toggle-pause"
-              title="${session.paused ? 'Resume timer' : 'Pause timer'}">
-        ${session.paused ? '▶' : '⏸'}
-      </button>
-      <button class="btn ghost small" data-act="toggle-timer"
-              title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
-        ${state.settings.hideTimer ? '👁' : '⏱'}
-      </button>
-      <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
+                                               <div class="session-actions">
+        <button class="btn ghost small" data-act="toggle-pause"
+                title="${session.paused ? 'Resume timer' : 'Pause timer'}">
+          ${session.paused ? '▶' : '⏸'}
+        </button>
+        <button class="btn ghost small" data-act="toggle-timer"
+                title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
+          ${state.settings.hideTimer ? '👁' : '⏱'}
+        </button>
+        <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
+      </div>
     </header>
     <main class="wrap session-wrap">
                   <div class="progress muted small">
