@@ -1898,18 +1898,25 @@ document.addEventListener('click', e => {
       openHabitModal(id, el.dataset.date);
       break;
 
-        case 'rep-plus': {
+            case 'rep-plus': {
       const d = getDeck(id || (session && session.deckId) || view.deckId);
       if(!d) break;
       const today = dayKey();
       const goal  = d.repsGoal || 1;
       d.repsLog = d.repsLog || {};
+      d.habit   = d.habit   || {};
       const cur = d.repsLog[today] || 0;
+
       if(cur >= goal){
-        // already at or past the goal → tap = reset to 0
+        // Session already logged; this tap starts a fresh one
         delete d.repsLog[today];
       } else {
-        d.repsLog[today] = cur + 1;
+        const next = cur + 1;
+        d.repsLog[today] = next;
+        if(next === goal){
+          // Reached the rep goal → auto-complete one session for today
+          d.habit[today] = (d.habit[today] || 0) + 1;
+        }
       }
       saveState();
       render();
