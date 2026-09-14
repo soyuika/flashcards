@@ -207,7 +207,31 @@
   .option.wrong{border-color:var(--bad); background:var(--bad-soft)}
   .option.dim{opacity:.45}
   .option:disabled{cursor:default}
-  .session-foot{display:flex; gap:10px; justify-content:center; margin-top:26px}
+    .session-foot{display:flex; gap:10px; justify-content:center; margin-top:26px}
+
+  /* ---------- type-in mode ---------- */
+  .type-input{
+    width:100%; padding:16px; font-size:20px; font-weight:600;
+    border:2px solid var(--border); border-radius:12px; background:#fff;
+    text-align:center; font-family:inherit; color:var(--text);
+    transition:.15s;
+  }
+  .type-input:focus{
+    outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 4px var(--accent-soft);
+  }
+  .type-result{
+    margin-top:16px; padding:14px 18px; border-radius:12px;
+    font-size:15.5px; text-align:center; font-weight:600; line-height:1.4;
+    word-break:break-word;
+  }
+  .type-result.ok{
+    background:var(--good-soft); color:var(--good); border:1px solid #b6e5cb;
+  }
+  .type-result.bad{
+    background:var(--bad-soft); color:var(--bad); border:1px solid #f3c9c9;
+  }
+  .type-result b{ font-weight:800 }
 
   .modal-backdrop{
     position:fixed; inset:0; background:rgba(15,18,30,.5); z-index:60;
@@ -777,9 +801,10 @@ function renderDeck(){
         <div class="opts">
           <div>
             <span class="label">Mode</span>
-            <div class="seg">
+                        <div class="seg">
               <button class="seg-btn ${s.mode === 'flash' ? 'on' : ''}" data-act="set-mode" data-v="flash">🃏 Flashcards</button>
               <button class="seg-btn ${s.mode === 'quiz' ? 'on' : ''}" data-act="set-mode" data-v="quiz">✅ Quiz (4 options)</button>
+              <button class="seg-btn ${s.mode === 'type' ? 'on' : ''}" data-act="set-mode" data-v="type">⌨️ Type answer</button>
             </div>
           </div>
           <div>
@@ -1560,9 +1585,10 @@ function startSession(deckId, opts){
     right: 0,
     wrong: 0,
     answered: 0,
-        revealed: false,
+            revealed: false,
     options: null,
     picked: null,
+    typeResult: null,      // { typed, ok, correct } during type-in mode
     finished: false,
     timeAdded: false
   };
@@ -1733,6 +1759,53 @@ function renderSession(){
              <button class="btn good big" data-act="judge" data-v="1">✓ Right</button>
            </div>`
         : ''}`;
+    } else if(session.mode === 'type'){
+    const answerSide = card[ansSide];
+    const answerText = (answerSide.text || '').trim();
+
+    if(!answerText){
+      // No text on the answer side → fall back to flash-style self-judge
+      body = `
+        <div class="flash-area">
+          ${sideHTML(ask, 'task')}
+          ${session.revealed
+            ? `<div class="divider"></div>${sideHTML(answerSide, 'answer')}`
+            : `<button class="btn primary big" data-act="reveal">Reveal answer (no text — self-judge)</button>`}
+        </div>
+        ${session.revealed
+          ? `<div class="judge-row">
+               <button class="btn bad big" data-act="judge" data-v="0">✗ Wrong</button>
+               <button class="btn good big" data-act="judge" data-v="1">✓ Right</button>
+             </div>`
+          : ''}`;
+    } else if(!session.typeResult){
+      body = `
+        <div class="flash-area">${sideHTML(ask, 'task')}</div>
+        <div style="margin-top:14px">
+          <input type="text" id="type-input" class="type-input"
+                 placeholder="Type the answer…" autocomplete="off"
+                 autocapitalize="off" autocorrect="off" spellcheck="false">
+        </div>
+        <button class="btn primary big" data-act="type-submit"
+                style="width:100%; margin-top:12px">Submit</button>
+        <p class="muted small" style="text-align:center; margin-top:10px">
+          Not case-sensitive · press Enter to submit
+        </p>`;
+    } else {
+      const r = session.typeResult;
+      body = `
+        <div class="flash-area">${sideHTML(ask, 'task')}</div>
+        <div class="divider"></div>
+        ${sideHTML(answerSide, 'answer')}
+        <div class="type-result ${r.ok ? 'ok' : 'bad'}">
+          ${r.ok
+            ? '✓ Correct'
+            : '✗ Your answer: <b>' + (esc(r.typed) || '<i>(blank)</i>') + '</b>'}
+        </div>
+        <button class="btn primary big" data-act="type-next"
+                style="width:100%; margin-top:14px">Next →</button>
+        <p class="muted small" style="text-align:center; margin-top:8px">Press Enter to continue</p>`;
+    }
   } else {
     if(!session.options) session.options = buildOptions(deck, card, ansSide, session.poolIds);
     body = `
@@ -1756,7 +1829,7 @@ function renderSession(){
       <button class="btn ghost" data-act="end" title="End session">✕</button>
       <div class="session-info">
         <span class="muted small">
-          ${esc(deck.name)} · ${session.mode === 'flash' ? 'Flashcards' : 'Quiz'} · ${session.dir === 'fb' ? 'Front → Back' : 'Back → Front'}${rangeNote}
+                    ${esc(deck.name)} · ${session.mode === 'flash' ? 'Flashcards' : session.mode === 'quiz' ? 'Quiz' : 'Type answer'} · ${session.dir === 'fb' ? 'Front → Back' : 'Back → Front'}${rangeNote}
         </span>
         ${!state.settings.hideTimer ? `
                     <div class="clock-row">
@@ -1786,11 +1859,27 @@ function renderSession(){
           : (session.round > 1 ? ' · round ' + session.round : '')}
       </div>
       ${body}
-      <div class="session-foot">
+            <div class="session-foot">
         <button class="btn ghost small" data-act="speak">🔊 Read again</button>
         <button class="btn ghost small" data-act="end">End session</button>
       </div>
     </main>`;
+
+  // Type-in mode: auto-focus the input so the user can start typing right away,
+  // and let Enter submit without needing to click.
+  if(session.mode === 'type'){
+    const inp = document.getElementById('type-input');
+    if(inp){
+      inp.focus();
+      inp.addEventListener('keydown', e => {
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          const btn = document.querySelector('[data-act="type-submit"]');
+          if(btn) btn.click();
+        }
+      });
+    }
+  }
 }
 
 /* =========================================================
@@ -1832,12 +1921,15 @@ function advance(){
   session.revealed = false;
   session.options = null;
   session.picked = null;
+  session.typeResult = null;
   render();
   if(session && !session.finished) speakCurrent();
 }
 
 function judge(ok){
-  if(!session || session.mode !== 'flash' || !session.revealed) return;
+  if(!session) return;
+  if(session.mode !== 'flash' && session.mode !== 'type') return;
+  if(!session.revealed) return;
   recordAnswer(ok);
   session.revealed = false;
   advance();
@@ -2253,6 +2345,30 @@ document.addEventListener('click', e => {
       }
       break;
 
+        case 'type-submit': {
+      if(!session || session.mode !== 'type') break;
+      const inp = document.getElementById('type-input');
+      const typed = inp ? inp.value : '';
+      const deck = getDeck(session.deckId);
+      if(!deck) break;
+      const card = deck.cards.find(c => c.id === session.queue[session.idx]);
+      if(!card) break;
+      const ansSide = session.dir === 'fb' ? 'back' : 'front';
+      const correct = (card[ansSide].text || '').trim();
+      const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const ok = norm(typed) === norm(correct);
+      session.typeResult = { typed: typed, ok: ok, correct: correct };
+      recordAnswer(ok);
+      render();
+      break;
+    }
+
+    case 'type-next': {
+      if(!session || session.mode !== 'type') break;
+      advance();
+      break;
+    }
+
     case 'reveal':
       if(session){ session.revealed = true; render(); }
       break;
@@ -2316,6 +2432,14 @@ document.addEventListener('click', e => {
    ========================================================= */
 document.addEventListener('keydown', e => {
   if(!session || session.finished) return;
+
+  // In type mode, Enter on the results screen advances to the next card.
+  if(session.mode === 'type' && session.typeResult && e.key === 'Enter'){
+    e.preventDefault();
+    advance();
+    return;
+  }
+
   if(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
   if(session.mode === 'flash'){
