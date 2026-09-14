@@ -163,7 +163,9 @@
   .clock-row{display:flex; gap:12px; justify-content:center; align-items:baseline; margin-top:2px}
   .clock{font-weight:800; font-size:16px; font-variant-numeric:tabular-nums}
   .timer{font-size:13px; color:var(--accent); font-weight:700; font-variant-numeric:tabular-nums}
-  .score{font-weight:800; font-size:15px; font-variant-numeric:tabular-nums}
+    .score{font-weight:800; font-size:15px; font-variant-numeric:tabular-nums}
+  .rep-pill{font-variant-numeric:tabular-nums; white-space:nowrap}
+  .rep-pill.done{background:var(--good-soft); color:var(--good); border-color:#b6e5cb}
   .session-wrap{max-width:720px; padding-top:16px}
   .progress{text-align:center; margin-bottom:14px}
   .flash-area{display:flex; flex-direction:column; gap:14px}
@@ -1406,9 +1408,10 @@ function startSession(deckId, opts){
     queue: shuffle(poolIds),
     idx: 0,
     round: 1,
-    right: 0,
+        right: 0,
     wrong: 0,
     answered: 0,
+    repsDone: 0,
     revealed: false,
     options: null,
     picked: null,
@@ -1603,6 +1606,11 @@ function renderSession(){
             ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
           </div>` : ''}
       </div>
+            <button class="btn ghost small rep-pill ${(session.repsDone || 0) >= (deck.repsGoal || 1) ? 'done' : ''}"
+              data-act="rep-plus"
+              title="Tap when you finish a pass through the deck. Tap again past the goal to reset to 0.">
+        🎯 ${session.repsDone || 0}/${deck.repsGoal || 1}
+      </button>
       <button class="btn ghost small" data-act="toggle-timer"
               title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
         ${state.settings.hideTimer ? '👁' : '⏱'}
@@ -1977,6 +1985,16 @@ document.addEventListener('click', e => {
       saveState();
       render();
       break;
+
+        case 'rep-plus': {
+      if(!session) break;
+      const d = getDeck(session.deckId);
+      const target = (d && d.repsGoal) || 1;
+      session.repsDone = (session.repsDone || 0) + 1;
+      if(session.repsDone > target) session.repsDone = 0;   // tap past goal = reset
+      render();
+      break;
+    }
 
     case 'reveal':
       if(session){ session.revealed = true; render(); }
