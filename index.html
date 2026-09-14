@@ -440,7 +440,7 @@ function blankState(){
     version: VERSION,
     decks: [],
     // Loop now defaults to ON: sessions keep going until you stop them.
-            settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false }
+                        settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false, quizHarder: 'random' }
   };
 }
 function loadState(){
@@ -816,7 +816,7 @@ function renderDeck(){
                   <section class="panel panel-drill">
         <h2>Start drilling</h2>
         <div class="opts">
-          <div>
+                    <div>
             <span class="label">Mode</span>
                         <div class="seg">
               <button class="seg-btn ${s.mode === 'flash' ? 'on' : ''}" data-act="set-mode" data-v="flash">🃏 Flashcards</button>
@@ -824,6 +824,24 @@ function renderDeck(){
               <button class="seg-btn ${s.mode === 'type' ? 'on' : ''}" data-act="set-mode" data-v="type">⌨️ Type answer</button>
             </div>
           </div>
+          ${s.mode === 'quiz' ? `
+            <div>
+              <span class="label">Quiz distractors</span>
+              <div class="seg">
+                ${[['random', 'Random'], ['samePos', 'Same type'], ['similar', 'Similar-looking'], ['both', 'Both']].map(([v, label]) =>
+                  `<button class="seg-btn ${(s.quizHarder || 'random') === v ? 'on' : ''}" data-act="set-quiz-harder" data-v="${v}">${label}</button>`
+                ).join('')}
+              </div>
+              <p class="muted small" style="margin:6px 0 0">
+                ${(s.quizHarder || 'random') === 'random'
+                  ? 'Any 3 cards from the deck.'
+                  : (s.quizHarder === 'samePos')
+                    ? 'Prefer cards marked with the same part of speech.'
+                    : (s.quizHarder === 'similar')
+                      ? 'Pick the 3 cards that look most like the correct answer.'
+                      : 'Same part of speech, sorted by how similar they look (hardest).'}
+              </p>
+            </div>` : ''}
           <div>
             <span class="label">Show me</span>
             <div class="seg">
@@ -1148,10 +1166,11 @@ function importDeckFlow(){
 
 function openImportModal(deck, fileName){
   // Regenerate ids so imported cards never collide with existing ones
-  const incomingCards = deck.cards.map(c => ({
+    const incomingCards = deck.cards.map(c => ({
     id: uid(),
     front: c.front || { text: '', img: null },
     back:  c.back  || { text: '', img: null },
+    pos: c.pos || '',
     studied: !!c.studied,
     reviews: c.reviews || 0,
     correct: c.correct || 0,
@@ -1535,8 +1554,24 @@ function openCardEditor(deckId, cardId){
   };
   if(!existing) activeDraftSaver = onClose;
 
-  openModal(`
+    openModal(`
     <h2>${existing ? 'Edit card' : 'New card'}</h2>
+    <label class="field" style="margin-bottom:12px">
+      <span>Part of speech (optional — used for harder quizzes)</span>
+      <select id="ce-pos">
+        <option value="">— none —</option>
+        <option value="noun">Noun</option>
+        <option value="verb">Verb</option>
+        <option value="adjective">Adjective</option>
+        <option value="adverb">Adverb</option>
+        <option value="pronoun">Pronoun</option>
+        <option value="preposition">Preposition</option>
+        <option value="conjunction">Conjunction</option>
+        <option value="interjection">Interjection</option>
+        <option value="phrase">Phrase / expression</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
     <div class="editor-grid">
       ${sideEditorHTML('front', 'Front')}
       ${sideEditorHTML('back', 'Back')}
@@ -1578,7 +1613,13 @@ function openCardEditor(deckId, cardId){
       };
     });
 
-        function updateCount(){
+            const posSel = root.querySelector('#ce-pos');
+    if(posSel){
+      posSel.value = draft.pos || '';
+      posSel.onchange = () => { draft.pos = posSel.value; };
+    }
+
+    function updateCount(){
       const c = root.querySelector('#ce-count');
       if(!c) return;
       const todayKey = dayKey();
@@ -1621,9 +1662,10 @@ function openCardEditor(deckId, cardId){
       }
 
       // ---------- Edit mode: save and close (unchanged behaviour) ----------
-      if(existing){
+            if(existing){
         existing.front = draft.front;
         existing.back = draft.back;
+        existing.pos = draft.pos || '';
         saveState();
         closeModal();
         render();
@@ -1631,10 +1673,11 @@ function openCardEditor(deckId, cardId){
       }
 
       // ---------- New card: save and stay open for the next one ----------
-      deck.cards.push({
+            deck.cards.push({
         id: uid(),
         front: { text: draft.front.text, img: draft.front.img },
         back:  { text: draft.back.text,  img: draft.back.img  },
+        pos: draft.pos || '',
         studied: false,
         reviews: 0,
         correct: 0,
@@ -1691,7 +1734,7 @@ function startSession(deckId, opts){
   if(!d || !d.cards.length){ alert('Add some cards first.'); return; }
 
   const s = state.settings;
-    const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer };
+        const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer, quizHarder: s.quizHarder };
 
   const poolIds = getRangeIds(d, d.studyRange);
   if(!poolIds.length){
@@ -1708,7 +1751,8 @@ function startSession(deckId, opts){
     deckId: deckId,
     mode: o.mode,
     dir: o.dir,
-        roundsLimit: (typeof o.rounds === 'number' ? o.rounds : 0),   // 0 = ∞
+            roundsLimit: (typeof o.rounds === 'number' ? o.rounds : 0),   // 0 = ∞
+    quizHarder: (typeof o.quizHarder === 'string') ? o.quizHarder : 'random',
     speak: !!o.speak,
     timerMin: o.timer || 0,
     remaining: (o.timer || 0) > 0 ? o.timer * 60 : 0,
@@ -1798,40 +1842,111 @@ function sideHTML(side, cls){
   return `<div class="side ${cls}">${img}${txt}</div>`;
 }
 
-function buildOptions(deck, card, ansSide, poolIds){
+/* ---------- similarity helpers for harder quizzes ---------- */
+function levenshtein(a, b){
+  if(a === b) return 0;
+  if(!a.length) return b.length;
+  if(!b.length) return a.length;
+  const m = a.length, n = b.length;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for(let j = 0; j <= n; j++) prev[j] = j;
+  for(let i = 1; i <= m; i++){
+    curr[0] = i;
+    for(let j = 1; j <= n; j++){
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const t = prev; prev = curr; curr = t;
+  }
+  return prev[n];
+}
+
+function similarity(a, b){
+  a = (a || '').toLowerCase().trim();
+  b = (b || '').toLowerCase().trim();
+  if(!a && !b) return 1;
+  if(!a || !b) return 0;
+  const maxLen = Math.max(a.length, b.length);
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+function pickDistractors(candidates, card, ansSide, mode){
+  // candidates: [{ side, card, key }], correct card already excluded
+  const correctText = (card[ansSide].text || '').trim();
+
+  // No text on the answer side → fall back to random
+  if(!correctText) mode = 'random';
+
+  const shuffled = shuffle(candidates);
+  let primary = [];
+  let fallback = [];
+
+  if(mode === 'both' && card.pos){
+    const scored = candidates.map(c => ({
+      ...c,
+      sim: similarity(correctText, (c.side.text || '').trim())
+    })).filter(c => c.card.pos === card.pos).sort((a, b) => b.sim - a.sim);
+    primary = scored;
+    fallback = candidates.map(c => ({
+      ...c,
+      sim: similarity(correctText, (c.side.text || '').trim())
+    })).sort((a, b) => b.sim - a.sim);
+  } else if(mode === 'similar'){
+    const scored = candidates.map(c => ({
+      ...c,
+      sim: similarity(correctText, (c.side.text || '').trim())
+    })).sort((a, b) => b.sim - a.sim);
+    primary = scored;
+  } else if(mode === 'samePos' && card.pos){
+    primary = shuffle(candidates.filter(c => c.card.pos === card.pos));
+    fallback = shuffled;
+  } else {
+    primary = shuffled;
+  }
+
+  const out = [];
+  const used = new Set();
+  for(const c of primary){
+    if(out.length >= 3) break;
+    if(used.has(c.key)) continue;
+    used.add(c.key);
+    out.push(c.side);
+  }
+  for(const c of fallback){
+    if(out.length >= 3) break;
+    if(used.has(c.key)) continue;
+    used.add(c.key);
+    out.push(c.side);
+  }
+  return out;
+}
+
+function buildOptions(deck, card, ansSide, poolIds, harderMode){
   const correct = card[ansSide];
   const keyOf = s => (s.text || '').trim().toLowerCase()
                   || (s.img ? 'img:' + s.img.length + '_' + s.img.slice(-24) : '');
 
   const seen = new Set([keyOf(correct)]);
-  const distractors = [];
 
+  // Build a unified candidate list: prefer cards in the study range first,
+  // then top up with the rest of the deck.
   const poolSet = new Set(poolIds || []);
-  const inPool  = deck.cards.filter(c => poolSet.has(c.id));
-  const outPool = deck.cards.filter(c => !poolSet.has(c.id));
+  const ordered = [
+    ...deck.cards.filter(c => c.id !== card.id && poolSet.has(c.id)),
+    ...deck.cards.filter(c => c.id !== card.id && !poolSet.has(c.id))
+  ];
 
-  // Prefer distractors from within the study range
-  for(const c of shuffle(inPool)){
-    if(c.id === card.id) continue;
+  const candidates = [];
+  for(const c of ordered){
     const s = c[ansSide];
     const k = keyOf(s);
     if(!k || seen.has(k)) continue;
     seen.add(k);
-    distractors.push(s);
-    if(distractors.length >= 3) break;
+    candidates.push({ side: s, card: c, key: k });
   }
-  // Fall back to the rest of the deck if the range is too small
-  if(distractors.length < 3){
-    for(const c of shuffle(outPool)){
-      if(c.id === card.id) continue;
-      const s = c[ansSide];
-      const k = keyOf(s);
-      if(!k || seen.has(k)) continue;
-      seen.add(k);
-      distractors.push(s);
-      if(distractors.length >= 3) break;
-    }
-  }
+
+  const distractors = pickDistractors(candidates, card, ansSide, harderMode || 'random');
 
   const opts = [{ side: correct, correct: true }]
     .concat(distractors.map(s => ({ side: s, correct: false })));
@@ -1945,7 +2060,7 @@ function renderSession(){
         <p class="muted small" style="text-align:center; margin-top:8px">Press Enter to continue</p>`;
     }
   } else {
-    if(!session.options) session.options = buildOptions(deck, card, ansSide, session.poolIds);
+        if(!session.options) session.options = buildOptions(deck, card, ansSide, session.poolIds, session.quizHarder);
     body = `
       <div class="flash-area">${sideHTML(ask, 'task')}</div>
       <div class="options">
@@ -2152,12 +2267,13 @@ function renderResults(deck){
 function restartSession(){
   if(!session) return;
   const deckId = session.deckId;
-      const opts = {
+          const opts = {
     mode: session.mode,
     dir: session.dir,
     rounds: session.roundsLimit,
     speak: session.speak,
-    timer: session.timerMin
+    timer: session.timerMin,
+    quizHarder: session.quizHarder
   };
   clearInterval(clockHandle);
   session = null;
@@ -2437,8 +2553,12 @@ document.addEventListener('click', e => {
       break;
     }
 
-    case 'set-mode':
+        case 'set-mode':
       state.settings.mode = el.dataset.v; saveState(); render();
+      break;
+    case 'set-quiz-harder':
+      state.settings.quizHarder = el.dataset.v || 'random';
+      saveState(); render();
       break;
     case 'set-dir':
       state.settings.dir = el.dataset.v; saveState(); render();
