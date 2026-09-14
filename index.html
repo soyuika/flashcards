@@ -1531,9 +1531,11 @@ function startSession(deckId, opts){
     elapsed: 0,
     poolIds: poolIds,
     queue: shuffle(poolIds),
-    idx: 0,
+        idx: 0,
     round: 1,
-        right: 0,
+    phase: 'main',           // 'main' | 'retry'
+    pendingRetries: [],      // card IDs to revisit at the end of this pass
+    right: 0,
     wrong: 0,
     answered: 0,
     revealed: false,
@@ -1661,14 +1663,24 @@ function renderSession(){
   if(!deck){ session = null; view = { name: 'home', deckId: null }; return render(); }
   if(session.finished) return renderResults(deck);
 
-    if(session.idx >= session.queue.length){
-    if(session.roundsLimit > 0 && session.round >= session.roundsLimit){
-      finishSession();
-      return;
+      if(session.idx >= session.queue.length){
+    if(session.pendingRetries && session.pendingRetries.length > 0){
+      // Wrong answers come back at the end of the pass — still part of the same round.
+      session.queue = session.pendingRetries;
+      session.pendingRetries = [];
+      session.idx = 0;
+      session.phase = 'retry';
+    } else {
+      // Full round complete (main pass + all retries cleared).
+      if(session.roundsLimit > 0 && session.round >= session.roundsLimit){
+        finishSession();
+        return;
+      }
+      session.queue = shuffle(session.poolIds);
+      session.idx = 0;
+      session.round++;
+      session.phase = 'main';
     }
-    session.queue = shuffle(session.queue);
-    session.idx = 0;
-    session.round++;
   }
 
   const card = deck.cards.find(c => c.id === session.queue[session.idx]);
@@ -1741,7 +1753,10 @@ function renderSession(){
       <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
     </header>
     <main class="wrap session-wrap">
-            <div class="progress muted small">
+                  <div class="progress muted small">
+        ${session.phase === 'retry'
+          ? '<span class="bad" style="font-weight:700">↻ Mistakes</span> · '
+          : ''}
         Card ${session.idx + 1} of ${session.queue.length}
         ${session.roundsLimit > 0
           ? ' · round ' + session.round + '/' + session.roundsLimit
@@ -1767,12 +1782,20 @@ function recordAnswer(ok){
     card.reviews = (card.reviews || 0) + 1;
     if(ok) card.correct = (card.correct || 0) + 1;
 
-    // Bump today's "distinct cards studied" counter, but only once per card per day
+        // Bump today's "distinct cards studied" counter, but only once per card per day
     const today = dayKey();
     if(card.lastStudied !== today){
       card.lastStudied = today;
       deck.studiedLog = deck.studiedLog || {};
       deck.studiedLog[today] = (deck.studiedLog[today] || 0) + 1;
+    }
+
+    // Wrong answers get one more appearance at the end of this pass.
+    if(!ok){
+      session.pendingRetries = session.pendingRetries || [];
+      if(!session.pendingRetries.includes(card.id)){
+        session.pendingRetries.push(card.id);
+      }
     }
   }
   session.answered++;
@@ -1865,7 +1888,7 @@ function renderResults(deck){
 function restartSession(){
   if(!session) return;
   const deckId = session.deckId;
-    const opts = {
+      const opts = {
     mode: session.mode,
     dir: session.dir,
     rounds: session.roundsLimit,
