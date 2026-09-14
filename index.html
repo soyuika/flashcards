@@ -433,6 +433,51 @@ function saveState(){
 }
 
 /* =========================================================
+   PENDING DRAFT (auto-save for the card editor)
+   ========================================================= */
+// A half-typed new card is temporarily stored for 5 seconds after the
+// modal is dismissed, so an accidental close doesn't lose your typing.
+let pendingDraft = null;
+// Set while the new-card modal is open, cleared as soon as it closes.
+// Lets `beforeunload` save the draft if the tab is closed mid-typing.
+let activeDraftSaver = null;
+
+function savePendingDraft(front, back){
+  const empty = side => !side || (!side.text?.trim() && !side.img);
+  if(empty(front) && empty(back)){
+    clearPendingDraft();
+    return;
+  }
+  pendingDraft = {
+    front: { text: (front && front.text) || '', img: (front && front.img) || null },
+    back:  { text: (back  && back.text)  || '', img: (back  && back.img)  || null },
+    savedAt: Date.now()
+  };
+  try { localStorage.setItem(KEY + '.draft', JSON.stringify(pendingDraft)); } catch(e){}
+}
+
+function loadPendingDraft(){
+  let d = pendingDraft;
+  if(!d){
+    try {
+      const raw = localStorage.getItem(KEY + '.draft');
+      if(raw) d = JSON.parse(raw);
+    } catch(e){}
+  }
+  if(!d) return null;
+  if(!d.savedAt || Date.now() - d.savedAt > 5000){
+    clearPendingDraft();
+    return null;
+  }
+  return d;
+}
+
+function clearPendingDraft(){
+  pendingDraft = null;
+  try { localStorage.removeItem(KEY + '.draft'); } catch(e){}
+}
+
+/* =========================================================
    SPEECH
    ========================================================= */
 function speak(text, lang){
@@ -459,13 +504,20 @@ function speakCurrent(){
 /* =========================================================
    MODAL
    ========================================================= */
-function openModal(html, wire){
+let modalCloseHook = null;
+function openModal(html, wire, onClose){
+  modalCloseHook = onClose || null;
   modalRoot.innerHTML = '<div class="modal-backdrop"><div class="modal">' + html + '</div></div>';
   const backdrop = modalRoot.querySelector('.modal-backdrop');
   backdrop.addEventListener('mousedown', e => { if(e.target === backdrop) closeModal(); });
   if(wire) wire(modalRoot);
 }
-function closeModal(){ modalRoot.innerHTML = ''; }
+function closeModal(){
+  const fn = modalCloseHook;
+  modalCloseHook = null;
+  if(fn){ try { fn(); } catch(e){} }
+  modalRoot.innerHTML = '';
+}
 
 /* =========================================================
    IMAGE HANDLING (resize + compress before storing)
@@ -1263,11 +1315,32 @@ function openCardEditor(deckId, cardId){
   const deck = getDeck(deckId);
   if(!deck) return;
   const existing = cardId ? deck.cards.find(c => c.id === cardId) : null;
-  const draft = existing
-    ? JSON.parse(JSON.stringify(existing))
-    : { id: null, front: { text: '', img: null }, back: { text: '', img: null }, studied: false };
 
-  let sessionAdded = 0;   // cards added in *this* modal session
+  let draft;
+  if(existing){
+    draft = JSON.parse(JSON.stringify(existing));
+  } else {
+    const pending = loadPendingDraft();
+    if(pending){
+      draft = {
+        id: null,
+        front: { text: pending.front.text || '', img: pending.front.img || null },
+        back:  { text: pending.back.text  || '', img: pending.back.img  || null },
+        studied: false
+      };
+    } else {
+      draft = { id: null, front: { text: '', img: null }, back: { text: '', img: null }, studied: false };
+    }
+  }
+
+    let sessionAdded = 0;   // cards added in *this* modal session
+
+  // Only new cards need draft-saving. Edit mode starts from an already-saved card.
+  const onClose = () => {
+    activeDraftSaver = null;
+    if(!existing) savePendingDraft(draft.front, draft.back);
+  };
+  if(!existing) activeDraftSaver = onClose;
 
   openModal(`
     <h2>${existing ? 'Edit card' : 'New card'}</h2>
@@ -1385,7 +1458,7 @@ function openCardEditor(deckId, cardId){
       updateCount();   // bump the "✓ N cards added" hint
     };
 
-    if(existing){
+        if(existing){
       root.querySelector('#ce-del').onclick = () => {
         if(!confirm('Delete this card?')) return;
         deck.cards = deck.cards.filter(c => c.id !== existing.id);
@@ -1399,7 +1472,7 @@ function openCardEditor(deckId, cardId){
         render();
       };
     }
-  });
+  }, onClose);
 }
 
 /* =========================================================
@@ -2179,6 +2252,7 @@ document.addEventListener('keydown', e => {
 window.addEventListener('beforeunload', () => {
   clearInterval(clockHandle);
   if('speechSynthesis' in window){ try { window.speechSynthesis.cancel(); } catch(e){} }
+  if(activeDraftSaver){ try { activeDraftSaver(); } catch(e){} }
 });
 
 try {
