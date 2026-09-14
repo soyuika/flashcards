@@ -748,59 +748,40 @@ function renderDeck(){
 
        <div class="deck-col">
             <section class="panel panel-tracker">
-                <div class="stats">
-          <div class="stat"><b>${total}</b><span>cards</span></div>
-          <div class="stat new"><b>${newCount}</b><span>not studied yet</span></div>
-          <div class="stat"><b>${learned}</b><span>studied</span></div>
-        </div>
+                        <span class="label">This week</span>
+        <div class="habit">${habitStripHTML(d)}</div>
 
-        ${paceLine(d) ? `<div class="pace">${paceLine(d)}</div>` : ''}
-
-        ${(() => {
-          /* ---------- TODAY: reps, time, cards added ---------- */
-          const repsCur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
-          const repsGoal = d.repsGoal || 1;
-          const repsDone = repsCur >= repsGoal;
-
-          const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
-
-          const addCur  = (d.addedLog && d.addedLog[dayKey()]) || 0;
-          const addGoal = d.addGoal || 0;
-          const addDone = addGoal > 0 && addCur >= addGoal;
-
-          let chips = '<div class="mini-row" style="margin-top:0">';
-          chips += `
-            <button class="mini-chip ${repsDone ? 'done' : ''}"
-                    data-act="rep-plus" data-id="${d.id}"
-                    title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-              🎯 <span class="mini-label">Reps</span> <b>${repsCur}/${repsGoal}</b>
-            </button>`;
-          if(secs > 0){
-            chips += `
-              <span class="mini-chip">
-                ⏱️ <span class="mini-label">Time</span> <b>${fmtDuration(secs)}</b>
-              </span>`;
-          }
-          if(addGoal > 0){
-            chips += `
-              <span class="mini-chip ${addDone ? 'done' : ''}">
-                📝 <span class="mini-label">Added</span> <b>${addCur}/${addGoal}</b>
-              </span>`;
-          }
-          chips += '</div>';
-
-          return `
-            <span class="label" style="margin-top:4px">Today</span>
-            ${chips}`;
-        })()}
-
-        <div class="row" style="justify-content:space-between; align-items:baseline; margin-top:18px">
-          <span class="label">This week · ${d.sessionsGoal || 3} session${(d.sessionsGoal || 3) === 1 ? '' : 's'}/day × ${d.repsGoal || 1} rep${(d.repsGoal || 1) === 1 ? '' : 's'}</span>
+        <div class="row" style="justify-content:space-between; align-items:baseline; margin-top:10px">
+          <span class="muted small">${d.sessionsGoal || 3} session${(d.sessionsGoal || 3) === 1 ? '' : 's'}/day × ${d.repsGoal || 1} rep${(d.repsGoal || 1) === 1 ? '' : 's'}</span>
           ${(d.studiedLog && d.studiedLog[dayKey()])
             ? `<button class="btn ghost small" data-act="reset-studied-today" data-id="${d.id}">↺ Reset studied today</button>`
             : ''}
         </div>
-        <div class="habit">${habitStripHTML(d)}</div>
+
+        ${paceLine(d) ? `<div class="pace" style="margin-top:14px">${paceLine(d)}</div>` : ''}
+
+        <div class="stats" style="margin-top:16px; margin-bottom:0; align-items:center; gap:12px">
+          ${(() => {
+            const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
+            const repsCur = (d.repsLog && d.repsLog[dayKey()]) || 0;
+            const repsGoal = d.repsGoal || 1;
+            const repsDone = repsCur >= repsGoal;
+            let html = '';
+            if(secs > 0){
+              html += `<span class="mini-chip">⏱️ <span class="mini-label">Time</span> <b>${fmtDuration(secs)}</b></span>`;
+            }
+            html += `<button class="mini-chip ${repsDone ? 'done' : ''}" data-act="rep-plus" data-id="${d.id}" title="Tap to add a rep. Tap again once past the goal to reset to 0.">🎯 <span class="mini-label">Reps</span> <b>${repsCur}/${repsGoal}</b></button>`;
+            return html;
+          })()}
+          ${(() => {
+            const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
+            const goal = d.addGoal || 0;
+            const done = goal > 0 && n >= goal;
+            return `<div class="stat" style="${done ? 'color:var(--good)' : ''}"><b>${goal > 0 ? n + '/' + goal : n}</b><span>cards added${done ? ' ✓' : ''}</span></div>`;
+          })()}
+          <div class="stat"><b>${newCount}</b><span>not studied</span></div>
+          <div class="stat"><b>${learned}</b><span>studied</span></div>
+        </div>
             </section>
 
 <section class="panel panel-transferred">
