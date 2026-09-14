@@ -382,7 +382,14 @@ function loadState(){
   s.decks.forEach(d => {
     d.cards = Array.isArray(d.cards) ? d.cards : [];
     d.habit = d.habit || {};
-    d.goal = d.goal || 1;
+        // Migrate old single "goal" into two goals: sessions per day × reps per session
+    if(typeof d.sessionsGoal !== 'number' || d.sessionsGoal < 1){
+      d.sessionsGoal = (typeof d.goal === 'number' && d.goal >= 1) ? d.goal : 3;
+    }
+    if(typeof d.repsGoal !== 'number' || d.repsGoal < 1){
+      d.repsGoal = 1;
+    }
+    delete d.goal;   // legacy; total is d.sessionsGoal * d.repsGoal
     d.lang = d.lang || 'en-US';
     d.cards.forEach(c => {
       c.front = c.front || { text: '', img: null };
@@ -517,14 +524,15 @@ function deckCardHTML(d){
   const newCount = d.cards.filter(c => !c.studied).length;
   const today = dayKey();
   const count = d.habit[today] || 0;
-  const goal = d.goal || 1;
+    const goal = d.sessionsGoal || 3;
+  const reps = d.repsGoal || 1;
   return `
     <div class="deck-card">
       <div class="deck-top">
         <h3>${esc(d.name)}</h3>
         ${newCount ? `<span class="pill">${newCount} new</span>` : ''}
       </div>
-            <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal}×/day${
+                  <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day × ${reps} rep${reps === 1 ? '' : 's'}${
         d.addGoal > 0
           ? (() => {
               const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
@@ -543,7 +551,7 @@ function deckCardHTML(d){
 }
 
 function habitStripHTML(d){
-  const goal = d.goal || 1;
+  const goal = d.sessionsGoal || 3;
   const letters = ['S','M','T','W','T','F','S'];
   let out = '';
   for(let i = 6; i >= 0; i--){
@@ -601,7 +609,7 @@ function renderDeck(){
         </div>
                 ${paceLine(d) ? `<div class="pace">${paceLine(d)}</div>` : ''}
                 <div class="row" style="justify-content:space-between; align-items:baseline">
-          <span class="label">Daily drill tracker — goal ${d.goal}×/day</span>
+                    <span class="label">Daily drill tracker — ${d.sessionsGoal || 3} session${(d.sessionsGoal || 3) === 1 ? '' : 's'}/day × ${d.repsGoal || 1} rep${(d.repsGoal || 1) === 1 ? '' : 's'}</span>
           ${(d.studiedLog && d.studiedLog[dayKey()])
             ? `<button class="btn ghost small" data-act="reset-studied-today" data-id="${d.id}">↺ Reset studied today</button>`
             : ''}
@@ -945,7 +953,8 @@ function openImportModal(deck, fileName){
           id: uid(),
           name: name,
           lang: deck.lang || 'en-US',
-          goal: deck.goal || 3,
+                    sessionsGoal: deck.sessionsGoal || deck.goal || 3,
+          repsGoal: deck.repsGoal || 1,
           addGoal: deck.addGoal || 0,
           addedLog: deck.addedLog || {},
           createdAt: Date.now(),
@@ -995,8 +1004,11 @@ function openNewDeck(){
     <label class="field"><span>Language (used for read-aloud)</span>
       <select id="nd-lang">${LANGS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
     </label>
-        <label class="field"><span>Daily goal (drills per day)</span>
-      <input id="nd-goal" type="number" min="1" max="20" value="3">
+                <label class="field"><span>Drill sessions per day</span>
+      <input id="nd-sessions" type="number" min="1" max="20" value="3">
+    </label>
+    <label class="field"><span>Reps (passes through the deck) per session</span>
+      <input id="nd-reps" type="number" min="1" max="20" value="1">
     </label>
     <label class="field"><span>Daily "add cards" goal (0 = off)</span>
       <input id="nd-addgoal" type="number" min="0" max="50" value="0">
@@ -1015,7 +1027,8 @@ function openNewDeck(){
         id: uid(),
         name: nameEl.value.trim() || 'New deck',
         lang: root.querySelector('#nd-lang').value,
-        goal: Math.max(1, parseInt(root.querySelector('#nd-goal').value, 10) || 3),
+                sessionsGoal: Math.max(1, parseInt(root.querySelector('#nd-sessions').value, 10) || 3),
+        repsGoal: Math.max(1, parseInt(root.querySelector('#nd-reps').value, 10) || 1),
         addGoal: Math.max(0, parseInt(root.querySelector('#nd-addgoal').value, 10) || 0),
         addedLog: {},
         createdAt: Date.now(),
@@ -1043,8 +1056,11 @@ function openDeckSettings(deckId){
     <label class="field"><span>Language (read-aloud)</span>
       <select id="ds-lang">${LANGS.map(([v, l]) => `<option value="${v}" ${d.lang === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     </label>
-        <label class="field"><span>Daily goal (drills per day)</span>
-      <input id="ds-goal" type="number" min="1" max="20" value="${d.goal}">
+                <label class="field"><span>Drill sessions per day</span>
+      <input id="ds-sessions" type="number" min="1" max="20" value="${d.sessionsGoal || 3}">
+    </label>
+    <label class="field"><span>Reps (passes through the deck) per session</span>
+      <input id="ds-reps" type="number" min="1" max="20" value="${d.repsGoal || 1}">
     </label>
     <label class="field"><span>Daily "add cards" goal (0 = off)</span>
       <input id="ds-addgoal" type="number" min="0" max="50" value="${d.addGoal || 0}">
@@ -1061,7 +1077,8 @@ function openDeckSettings(deckId){
         root.querySelector('#ds-save').onclick = () => {
       d.name = root.querySelector('#ds-name').value.trim() || d.name;
       d.lang = root.querySelector('#ds-lang').value;
-      d.goal = Math.max(1, parseInt(root.querySelector('#ds-goal').value, 10) || 1);
+            d.sessionsGoal = Math.max(1, parseInt(root.querySelector('#ds-sessions').value, 10) || 1);
+      d.repsGoal = Math.max(1, parseInt(root.querySelector('#ds-reps').value, 10) || 1);
       d.addGoal = Math.max(0, parseInt(root.querySelector('#ds-addgoal').value, 10) || 0);
       saveState(); closeModal(); render();
     };
@@ -1675,7 +1692,7 @@ function renderResults(deck){
   const acc = total ? Math.round(session.right / total * 100) : 0;
   const today = dayKey();
   const done = deck.habit[today] || 0;
-  const goal = deck.goal || 1;
+    const goal = deck.sessionsGoal || 3;
 
   app.innerHTML = `
     <header class="topbar">
@@ -1693,7 +1710,7 @@ function renderResults(deck){
         </div>
                 ${paceLine(deck) ? `<div class="pace" style="margin-top:8px">${paceLine(deck)}</div>` : ''}
         <div class="modal-actions">
-          <button class="btn" data-act="tick-today">✓ Mark today's drill (${done}/${goal})</button>
+                    <button class="btn" data-act="tick-today">✓ Mark today's session (${done}/${goal})</button>
           <span class="spacer"></span>
           <button class="btn" data-act="back-deck">Back to deck</button>
           <button class="btn primary" data-act="again">Drill again</button>
@@ -1723,14 +1740,15 @@ function restartSession(){
 function openHabitModal(deckId, date){
   const d = getDeck(deckId);
   if(!d) return;
-  const goal = d.goal || 1;
+    const goal = d.sessionsGoal || 3;
+  const reps = d.repsGoal || 1;
 
   function body(){
     const cur = d.habit[date] || 0;
     const done = cur >= goal;
     return `
       <h2>${date}</h2>
-      <p class="muted small" style="margin-top:0">Daily drill goal: ${goal}×</p>
+            <p class="muted small" style="margin-top:0">${goal} session${goal === 1 ? '' : 's'}/day · ${reps} rep${reps === 1 ? '' : 's'} per session</p>
       <div class="row" style="justify-content:center; align-items:center; gap:18px; margin:24px 0 8px">
         <button class="btn" id="hb-minus" style="width:56px; height:56px; font-size:24px; font-weight:800; border-radius:14px"
                 ${cur <= 0 ? 'disabled' : ''}>−</button>
@@ -1789,7 +1807,7 @@ function tickDay(deckId, date){
   const d = getDeck(deckId);
   if(!d) return;
   d.habit = d.habit || {};
-  const goal = d.goal || 1;
+    const goal = d.sessionsGoal || 3;
   const cur = d.habit[date] || 0;
   const next = cur >= goal ? 0 : cur + 1;
   if(next === 0) delete d.habit[date];
