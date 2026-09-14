@@ -75,8 +75,12 @@
     background:#fff; border:1px solid var(--border); border-radius:var(--radius);
     padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:10px;
   }
-  .deck-top{display:flex; align-items:flex-start; gap:8px}
+    .deck-top{display:flex; align-items:flex-start; gap:8px}
   .deck-top h3{margin:0; font-size:16px; flex:1; word-break:break-word}
+  .deck-reorder{display:flex; flex-direction:column; gap:2px; margin-left:2px}
+  .deck-reorder .icon-btn{font-size:10px; padding:3px 6px; line-height:1; color:var(--muted)}
+  .deck-reorder .icon-btn:hover:not(:disabled){color:var(--accent); background:#f0f1f7}
+  .deck-reorder .icon-btn:disabled{opacity:.25; cursor:not-allowed}
   .pill{
     background:var(--accent-soft); color:var(--accent); font-size:11.5px; font-weight:700;
     padding:3px 8px; border-radius:999px; white-space:nowrap;
@@ -523,7 +527,7 @@ function renderHome(){
     </main>`;
 }
 
-function deckCardHTML(d){
+function deckCardHTML(d, index){
   const total = d.cards.length;
   const newCount = d.cards.filter(c => !c.studied).length;
   const today = dayKey();
@@ -531,10 +535,16 @@ function deckCardHTML(d){
     const goal = d.sessionsGoal || 3;
   const reps = d.repsGoal || 1;
   return `
-    <div class="deck-card">
+        <div class="deck-card">
       <div class="deck-top">
         <h3>${esc(d.name)}</h3>
         ${newCount ? `<span class="pill">${newCount} new</span>` : ''}
+        <div class="deck-reorder">
+          <button class="icon-btn" data-act="move-deck" data-id="${d.id}" data-dir="-1"
+                  ${index === 0 ? 'disabled' : ''} title="Move up">▲</button>
+          <button class="icon-btn" data-act="move-deck" data-id="${d.id}" data-dir="1"
+                  ${index === state.decks.length - 1 ? 'disabled' : ''} title="Move down">▼</button>
+        </div>
       </div>
                   <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day × ${reps} rep${reps === 1 ? '' : 's'}${
         d.addGoal > 0
@@ -1883,13 +1893,25 @@ document.addEventListener('click', e => {
       render();
       break;
 
-    case 'del-deck': {
+        case 'del-deck': {
       const d = getDeck(id);
       if(d && confirm('Delete deck "' + d.name + '" and all of its cards?')){
         state.decks = state.decks.filter(x => x.id !== id);
         saveState();
         render();
       }
+      break;
+    }
+
+    case 'move-deck': {
+      const dir = parseInt(el.dataset.dir, 10) || 0;
+      const idx = state.decks.findIndex(x => x.id === id);
+      if(idx < 0 || dir === 0) break;
+      const newIdx = idx + dir;
+      if(newIdx < 0 || newIdx >= state.decks.length) break;
+      [state.decks[idx], state.decks[newIdx]] = [state.decks[newIdx], state.decks[idx]];
+      saveState();
+      render();
       break;
     }
 
