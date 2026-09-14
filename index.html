@@ -86,10 +86,36 @@
   .deck-reorder .icon-btn{font-size:10px; padding:3px 6px; line-height:1; color:var(--muted)}
   .deck-reorder .icon-btn:hover:not(:disabled){color:var(--accent); background:#f0f1f7}
   .deck-reorder .icon-btn:disabled{opacity:.25; cursor:not-allowed}
-  .pill{
+    .pill{
     background:var(--accent-soft); color:var(--accent); font-size:11.5px; font-weight:700;
     padding:3px 8px; border-radius:999px; white-space:nowrap;
   }
+
+  /* Compact inline chips for the per-day stats (reps, time, add-goal) */
+  .mini-row{
+    display:flex; gap:6px; flex-wrap:wrap; margin-top:14px;
+  }
+  .mini-chip{
+    display:inline-flex; align-items:center; gap:5px;
+    padding:5px 10px; border-radius:999px;
+    background:#f2f3f9; border:1px solid var(--border);
+    font-size:12.5px; font-weight:700; color:var(--text);
+    font-variant-numeric:tabular-nums; white-space:nowrap;
+    line-height:1.2;
+  }
+  .mini-chip .mini-label{
+    color:var(--muted); font-weight:600; font-size:11.5px;
+    text-transform:none; letter-spacing:0;
+  }
+  button.mini-chip{
+    cursor:pointer; background:#fff; font:inherit;
+    font-size:12.5px; font-weight:700;
+  }
+  button.mini-chip:hover{ border-color:var(--accent) }
+  .mini-chip.done{
+    background:var(--good-soft); border-color:#b6e5cb; color:var(--good);
+  }
+  .mini-chip.done .mini-label{ color:var(--good) }
 
     .habit{display:flex; gap:4px; flex-wrap:nowrap}
   .habit-cell{
@@ -735,40 +761,43 @@ function renderDeck(){
             : ''}
         </div>
                 <div class="habit">${habitStripHTML(d)}</div>
-                ${(() => {
-          const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
-          const goal = d.repsGoal || 1;
-          const done = cur >= goal;
-          return `
-            <span class="label" style="margin-top:16px">Reps this session — goal ${goal}</span>
-            <div class="row">
-              <button class="btn ghost small rep-pill ${done ? 'done' : ''}"
-                      data-act="rep-plus" data-id="${d.id}"
-                      title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                🎯 ${cur}/${goal} reps
-              </button>
-            </div>`;
-        })()}
-        ${(() => {
+                  ${(() => {
+          const repsCur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
+          const repsGoal = d.repsGoal || 1;
+          const repsDone = repsCur >= repsGoal;
+
           const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
-          if(secs <= 0) return '';
-          return `
-            <span class="label" style="margin-top:16px">Time drilled today</span>
-            <div class="row">
-              <span class="pill" style="font-size:13px; padding:6px 12px">⏱️ ${fmtDuration(secs)}</span>
-            </div>`;
+
+          const addCur  = (d.addedLog && d.addedLog[dayKey()]) || 0;
+          const addGoal = d.addGoal || 0;
+          const addDone = addGoal > 0 && addCur >= addGoal;
+
+          let html = '<div class="mini-row">';
+
+          html += `
+            <button class="mini-chip ${repsDone ? 'done' : ''}"
+                    data-act="rep-plus" data-id="${d.id}"
+                    title="Tap to add a rep. Tap again once past the goal to reset to 0.">
+              🎯 <span class="mini-label">Reps</span> <b>${repsCur}/${repsGoal}</b>
+            </button>`;
+
+          if(secs > 0){
+            html += `
+              <span class="mini-chip">
+                ⏱️ <span class="mini-label">Time</span> <b>${fmtDuration(secs)}</b>
+              </span>`;
+          }
+
+          if(addGoal > 0){
+            html += `
+              <span class="mini-chip ${addDone ? 'done' : ''}">
+                📝 <span class="mini-label">Added</span> <b>${addCur}/${addGoal}</b>
+              </span>`;
+          }
+
+          html += '</div>';
+          return html;
         })()}
-        ${d.addGoal > 0 ? (() => {
-          const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
-          const done = n >= d.addGoal;
-          return `
-            <span class="label" style="margin-top:16px">Daily "add cards" goal — ${d.addGoal}/day</span>
-            <div class="row">
-              <span class="pill" style="${done ? 'background:var(--good-soft); color:var(--good); font-size:13px; padding:6px 12px' : 'font-size:13px; padding:6px 12px'}">
-                📝 ${n}/${d.addGoal} added today${done ? ' ✓ done!' : ''}
-              </span>
-            </div>`;
-        })() : ''}
             </section>
 
 <section class="panel panel-transferred">
