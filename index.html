@@ -132,7 +132,11 @@
     font-size:13.5px; font-weight:600; color:var(--muted); transition:.12s;
   }
   .seg-btn:hover{color:var(--text)}
-  .seg-btn.on{background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(20,25,50,.14)}
+    .seg-btn.on{background:#fff; color:var(--accent); box-shadow:0 1px 3px rgba(20,25,50,.14)}
+  /* Dimmed (but still clickable) so switching is one tap */
+  .seg.seg-off{opacity:.45}
+  .seg.seg-off .seg-btn{color:var(--muted)}
+  .seg.seg-off .seg-btn.on{color:var(--muted); box-shadow:none; background:transparent}
   .check{display:flex; align-items:center; gap:8px; font-size:14px; margin:6px 0; cursor:pointer}
   .check input{width:17px; height:17px; accent-color:var(--accent)}
 
@@ -778,17 +782,17 @@ function renderDeck(){
             </div>
             ${rangeInfo}
           ` : ''}
-          <div>
+                    <div>
             <span class="label">Timer</span>
-            <div class="seg">
-                            ${[0, 1, 2, 3, 5, 10].map(m =>
+            <div class="seg ${s.rounds > 0 ? 'seg-off' : ''}">
+              ${[0, 1, 2, 3, 5, 10].map(m =>
                 `<button class="seg-btn ${s.timer === m ? 'on' : ''}" data-act="set-timer" data-v="${m}">${m === 0 ? 'Off' : m + ' min'}</button>`
               ).join('')}
             </div>
           </div>
-                    <div>
+                              <div>
             <span class="label">Rounds</span>
-            <div class="seg">
+            <div class="seg ${s.timer > 0 ? 'seg-off' : ''}">
               ${[0, 1, 2, 3, 5].map(n =>
                 `<button class="seg-btn ${s.rounds === n ? 'on' : ''}" data-act="set-rounds" data-v="${n}">${n === 0 ? '∞' : n}</button>`
               ).join('')}
@@ -2148,12 +2152,22 @@ document.addEventListener('click', e => {
     case 'set-dir':
       state.settings.dir = el.dataset.v; saveState(); render();
       break;
-        case 'set-timer':
-      state.settings.timer = parseInt(el.dataset.v, 10) || 0; saveState(); render();
+            case 'set-timer': {
+      const v = parseInt(el.dataset.v, 10) || 0;
+      state.settings.timer = v;
+      if(v > 0) state.settings.rounds = 0;   // timer and rounds are mutually exclusive
+      saveState();
+      render();
       break;
-    case 'set-rounds':
-      state.settings.rounds = parseInt(el.dataset.v, 10) || 0; saveState(); render();
+    }
+    case 'set-rounds': {
+      const v = parseInt(el.dataset.v, 10) || 0;
+      state.settings.rounds = v;
+      if(v > 0) state.settings.timer = 0;    // rounds and timer are mutually exclusive
+      saveState();
+      render();
       break;
+    }
 
     case 'set-range-mode': {
       const d = getDeck(view.deckId);
