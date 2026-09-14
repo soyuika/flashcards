@@ -512,11 +512,14 @@ function saveState(){
 // A half-typed new card is temporarily stored for 5 seconds after the
 // modal is dismissed, so an accidental close doesn't lose your typing.
 let pendingDraft = null;
+// Remembers the POS chosen on the last new card, so adding a batch of
+// same-type cards is a single tap on the first card only.
+let lastPosChoice = '';
 // Set while the new-card modal is open, cleared as soon as it closes.
 // Lets `beforeunload` save the draft if the tab is closed mid-typing.
 let activeDraftSaver = null;
 
-function savePendingDraft(front, back){
+function savePendingDraft(front, back, pos){
   const empty = side => !side || (!side.text?.trim() && !side.img);
   if(empty(front) && empty(back)){
     clearPendingDraft();
@@ -525,6 +528,7 @@ function savePendingDraft(front, back){
   pendingDraft = {
     front: { text: (front && front.text) || '', img: (front && front.img) || null },
     back:  { text: (back  && back.text)  || '', img: (back  && back.img)  || null },
+    pos: (typeof pos === 'string') ? pos : '',
     savedAt: Date.now()
   };
   try { localStorage.setItem(KEY + '.draft', JSON.stringify(pendingDraft)); } catch(e){}
@@ -832,7 +836,7 @@ function renderDeck(){
                   `<button class="seg-btn ${(s.quizHarder || 'random') === v ? 'on' : ''}" data-act="set-quiz-harder" data-v="${v}">${label}</button>`
                 ).join('')}
               </div>
-              <p class="muted small" style="margin:6px 0 0">
+                            <p class="muted small" style="margin:6px 0 0">
                 ${(s.quizHarder || 'random') === 'random'
                   ? 'Any 3 cards from the deck.'
                   : (s.quizHarder === 'samePos')
@@ -841,6 +845,15 @@ function renderDeck(){
                       ? 'Pick the 3 cards that look most like the correct answer.'
                       : 'Same part of speech, sorted by how similar they look (hardest).'}
               </p>
+              ${(() => {
+                const lang = (d.lang || 'en-US').slice(0, 2);
+                const isCJK = (lang === 'ja' || lang === 'ko' || lang === 'zh');
+                const mode = (s.quizHarder || 'random');
+                if(!isCJK || mode === 'random' || mode === 'samePos') return '';
+                return `<p class="small" style="margin:6px 0 0; color:var(--bad)">
+                  ⚠ Character-based similarity isn't meaningful for this language — "Same type" gives a more reliable hard mode.
+                </p>`;
+              })()}
             </div>` : ''}
           <div>
             <span class="label">Show me</span>
@@ -952,6 +965,7 @@ function cardRowHTML(c, index){
         <div class="side-line"><span class="tag b">B</span><span>${esc(b.text) || '<i class="muted">(no text)</i>'}</span></div>
       </div>
       <div class="row-actions">
+        ${c.pos ? `<span class="tag" style="background:#f0f1f7; color:var(--muted); text-transform:lowercase; font-weight:600">${esc(c.pos)}</span>` : ''}
         ${c.studied ? '' : '<span class="dot" title="Not studied yet"></span>'}
         <button class="icon-btn" data-act="edit-card" data-id="${c.id}" title="Edit">✏️</button>
         <button class="icon-btn" data-act="del-card" data-id="${c.id}" title="Delete">🗑️</button>
@@ -1528,7 +1542,7 @@ function openCardEditor(deckId, cardId){
   if(!deck) return;
   const existing = cardId ? deck.cards.find(c => c.id === cardId) : null;
 
-  let draft;
+    let draft;
   if(existing){
     draft = JSON.parse(JSON.stringify(existing));
   } else {
@@ -1538,40 +1552,41 @@ function openCardEditor(deckId, cardId){
         id: null,
         front: { text: pending.front.text || '', img: pending.front.img || null },
         back:  { text: pending.back.text  || '', img: pending.back.img  || null },
+        pos: pending.pos || lastPosChoice || '',
         studied: false
       };
     } else {
-      draft = { id: null, front: { text: '', img: null }, back: { text: '', img: null }, studied: false };
+      draft = { id: null, front: { text: '', img: null }, back: { text: '', img: null }, pos: lastPosChoice || '', studied: false };
     }
   }
 
     let sessionAdded = 0;   // cards added in *this* modal session
 
   // Only new cards need draft-saving. Edit mode starts from an already-saved card.
-  const onClose = () => {
+    const onClose = () => {
     activeDraftSaver = null;
-    if(!existing) savePendingDraft(draft.front, draft.back);
+    if(!existing) savePendingDraft(draft.front, draft.back, draft.pos);
   };
   if(!existing) activeDraftSaver = onClose;
 
     openModal(`
     <h2>${existing ? 'Edit card' : 'New card'}</h2>
-    <label class="field" style="margin-bottom:12px">
+        <div class="field" style="margin-bottom:12px">
       <span>Part of speech (optional — used for harder quizzes)</span>
-      <select id="ce-pos">
-        <option value="">— none —</option>
-        <option value="noun">Noun</option>
-        <option value="verb">Verb</option>
-        <option value="adjective">Adjective</option>
-        <option value="adverb">Adverb</option>
-        <option value="pronoun">Pronoun</option>
-        <option value="preposition">Preposition</option>
-        <option value="conjunction">Conjunction</option>
-        <option value="interjection">Interjection</option>
-        <option value="phrase">Phrase / expression</option>
-        <option value="other">Other</option>
-      </select>
-    </label>
+      <div class="seg" id="ce-pos-seg" style="flex-wrap:wrap">
+        <button type="button" class="seg-btn" data-pos="">none</button>
+        <button type="button" class="seg-btn" data-pos="noun">Noun</button>
+        <button type="button" class="seg-btn" data-pos="verb">Verb</button>
+        <button type="button" class="seg-btn" data-pos="adjective">Adj</button>
+        <button type="button" class="seg-btn" data-pos="adverb">Adv</button>
+        <button type="button" class="seg-btn" data-pos="pronoun">Pron</button>
+        <button type="button" class="seg-btn" data-pos="preposition">Prep</button>
+        <button type="button" class="seg-btn" data-pos="conjunction">Conj</button>
+        <button type="button" class="seg-btn" data-pos="interjection">Interj</button>
+        <button type="button" class="seg-btn" data-pos="phrase">Phrase</button>
+        <button type="button" class="seg-btn" data-pos="other">Other</button>
+      </div>
+    </div>
     <div class="editor-grid">
       ${sideEditorHTML('front', 'Front')}
       ${sideEditorHTML('back', 'Back')}
@@ -1613,10 +1628,20 @@ function openCardEditor(deckId, cardId){
       };
     });
 
-            const posSel = root.querySelector('#ce-pos');
-    if(posSel){
-      posSel.value = draft.pos || '';
-      posSel.onchange = () => { draft.pos = posSel.value; };
+                const posSeg = root.querySelector('#ce-pos-seg');
+    if(posSeg){
+      const buttons = posSeg.querySelectorAll('.seg-btn');
+      const paint = () => {
+        buttons.forEach(b => b.classList.toggle('on', (b.dataset.pos || '') === (draft.pos || '')));
+      };
+      buttons.forEach(b => {
+        b.onclick = () => {
+          draft.pos = b.dataset.pos || '';
+          lastPosChoice = draft.pos;
+          paint();
+        };
+      });
+      paint();
     }
 
     function updateCount(){
