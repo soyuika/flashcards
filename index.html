@@ -369,7 +369,7 @@ function blankState(){
     version: VERSION,
     decks: [],
     // Loop now defaults to ON: sessions keep going until you stop them.
-        settings: { speak: true, timer: 0, loop: true, mode: 'flash', dir: 'fb', hideTimer: false }
+            settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false }
   };
 }
 function loadState(){
@@ -381,11 +381,12 @@ function loadState(){
       if(parsed && Array.isArray(parsed.decks)) s.decks = parsed.decks;
       if(parsed && parsed.settings) Object.assign(s.settings, parsed.settings);
 
-      // Migration v1 -> v2: loop default flipped from false to true.
-      // Only force it if the user hasn't already been on v2.
-      if(!parsed || (parsed.version || 1) < 2){
-        s.settings.loop = true;
+            // Migration: the old "loop" boolean is now a "rounds" number.
+      // loop:true → rounds:0 (∞) | loop:false → rounds:1
+      if(s.settings.rounds == null){
+        s.settings.rounds = (s.settings.loop === false) ? 1 : 0;
       }
+      delete s.settings.loop;
     }
   } catch(e){ console.warn('Could not load saved data', e); }
   s.version = VERSION;
@@ -785,9 +786,14 @@ function renderDeck(){
               ).join('')}
             </div>
           </div>
-          <div>
-            <label class="check"><input type="checkbox" id="opt-loop" ${s.loop ? 'checked' : ''}> Loop — keep going until I stop</label>
-            <label class="check"><input type="checkbox" id="opt-speak" ${s.speak ? 'checked' : ''}> 🔊 Read the prompt aloud</label>
+                    <div>
+            <span class="label">Rounds</span>
+            <div class="seg">
+              ${[0, 1, 2, 3, 5].map(n =>
+                `<button class="seg-btn ${s.rounds === n ? 'on' : ''}" data-act="set-rounds" data-v="${n}">${n === 0 ? '∞' : n}</button>`
+              ).join('')}
+            </div>
+            <label class="check" style="margin-top:10px"><input type="checkbox" id="opt-speak" ${s.speak ? 'checked' : ''}> 🔊 Read the prompt aloud</label>
           </div>
         </div>
         <button class="btn primary big" data-act="start" ${total === 0 ? 'disabled' : ''}>▶ Start drilling</button>
@@ -809,9 +815,7 @@ function renderDeck(){
       </section>
     </main>`;
 
-  const loopEl = document.getElementById('opt-loop');
-  const speakEl = document.getElementById('opt-speak');
-  if(loopEl) loopEl.onchange = e => { state.settings.loop = e.target.checked; saveState(); };
+    const speakEl = document.getElementById('opt-speak');
   if(speakEl) speakEl.onchange = e => { state.settings.speak = e.target.checked; saveState(); };
 
   const fromEl = document.getElementById('range-from');
@@ -1498,7 +1502,7 @@ function startSession(deckId, opts){
   if(!d || !d.cards.length){ alert('Add some cards first.'); return; }
 
   const s = state.settings;
-  const o = opts || { mode: s.mode, dir: s.dir, loop: s.loop, speak: s.speak, timer: s.timer };
+    const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer };
 
   const poolIds = getRangeIds(d, d.studyRange);
   if(!poolIds.length){
@@ -1515,7 +1519,7 @@ function startSession(deckId, opts){
     deckId: deckId,
     mode: o.mode,
     dir: o.dir,
-    loop: !!o.loop,
+        roundsLimit: (typeof o.rounds === 'number' ? o.rounds : 0),   // 0 = ∞
     speak: !!o.speak,
     timerMin: o.timer || 0,
     remaining: (o.timer || 0) > 0 ? o.timer * 60 : 0,
@@ -1653,15 +1657,14 @@ function renderSession(){
   if(!deck){ session = null; view = { name: 'home', deckId: null }; return render(); }
   if(session.finished) return renderResults(deck);
 
-  if(session.idx >= session.queue.length){
-    if(session.loop){
-      session.queue = shuffle(session.queue);
-      session.idx = 0;
-      session.round++;
-    } else {
+    if(session.idx >= session.queue.length){
+    if(session.roundsLimit > 0 && session.round >= session.roundsLimit){
       finishSession();
       return;
     }
+    session.queue = shuffle(session.queue);
+    session.idx = 0;
+    session.round++;
   }
 
   const card = deck.cards.find(c => c.id === session.queue[session.idx]);
@@ -1734,8 +1737,11 @@ function renderSession(){
       <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
     </header>
     <main class="wrap session-wrap">
-      <div class="progress muted small">
-        Card ${session.idx + 1} of ${session.queue.length}${session.loop ? ' · round ' + session.round : ''}
+            <div class="progress muted small">
+        Card ${session.idx + 1} of ${session.queue.length}
+        ${session.roundsLimit > 0
+          ? ' · round ' + session.round + '/' + session.roundsLimit
+          : (session.round > 1 ? ' · round ' + session.round : '')}
       </div>
       ${body}
       <div class="session-foot">
@@ -1855,10 +1861,10 @@ function renderResults(deck){
 function restartSession(){
   if(!session) return;
   const deckId = session.deckId;
-  const opts = {
+    const opts = {
     mode: session.mode,
     dir: session.dir,
-    loop: session.loop,
+    rounds: session.roundsLimit,
     speak: session.speak,
     timer: session.timerMin
   };
@@ -2142,8 +2148,11 @@ document.addEventListener('click', e => {
     case 'set-dir':
       state.settings.dir = el.dataset.v; saveState(); render();
       break;
-    case 'set-timer':
+        case 'set-timer':
       state.settings.timer = parseInt(el.dataset.v, 10) || 0; saveState(); render();
+      break;
+    case 'set-rounds':
+      state.settings.rounds = parseInt(el.dataset.v, 10) || 0; saveState(); render();
       break;
 
     case 'set-range-mode': {
