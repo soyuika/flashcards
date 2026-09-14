@@ -364,6 +364,14 @@ function fmtTime(sec){
   const m = Math.floor(sec / 60), s = sec % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
+function fmtPerCard(secPerCard){
+  if(!isFinite(secPerCard) || secPerCard <= 0) return '—';
+  if(secPerCard < 10)  return secPerCard.toFixed(1) + 's';
+  if(secPerCard < 60)  return Math.round(secPerCard) + 's';
+  const m = Math.floor(secPerCard / 60);
+  const s = Math.round(secPerCard % 60);
+  return m + 'm ' + s + 's';
+}
 
 /* =========================================================
    STORAGE
@@ -1847,9 +1855,10 @@ function finishSession(){
 function renderResults(deck){
   const total = session.right + session.wrong;
   const acc = total ? Math.round(session.right / total * 100) : 0;
+  const perCard = total ? (session.elapsed / total) : 0;
   const today = dayKey();
   const done = deck.habit[today] || 0;
-    const goal = deck.sessionsGoal || 3;
+  const goal = deck.sessionsGoal || 3;
 
   app.innerHTML = `
     <header class="topbar">
@@ -1858,8 +1867,9 @@ function renderResults(deck){
     <main class="wrap">
       <section class="panel results">
         <h2>Session complete 🎉</h2>
-        <div class="stats">
+                <div class="stats">
           <div class="stat"><b>${fmtTime(session.elapsed)}</b><span>total time</span></div>
+          <div class="stat"><b>${fmtPerCard(perCard)}</b><span>per card</span></div>
           <div class="stat"><b>${total}</b><span>cards answered</span></div>
           <div class="stat"><b class="good">${session.right}</b><span>right</span></div>
           <div class="stat"><b class="bad">${session.wrong}</b><span>wrong</span></div>
