@@ -538,10 +538,10 @@ function deckCardHTML(d, index){
   const newCount = d.cards.filter(c => !c.studied).length;
   const today = dayKey();
   const count = d.habit[today] || 0;
-    const goal = d.sessionsGoal || 3;
+  const goal = d.sessionsGoal || 3;
   const reps = d.repsGoal || 1;
   return `
-        <div class="deck-card">
+    <div class="deck-card">
       <div class="deck-top">
         <h3>${esc(d.name)}</h3>
         ${newCount ? `<span class="pill">${newCount} new</span>` : ''}
@@ -552,7 +552,7 @@ function deckCardHTML(d, index){
                   ${index === state.decks.length - 1 ? 'disabled' : ''} title="Move down">▼</button>
         </div>
       </div>
-                  <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day × ${reps} rep${reps === 1 ? '' : 's'}${
+      <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day × ${reps} rep${reps === 1 ? '' : 's'}${
         d.addGoal > 0
           ? (() => {
               const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
@@ -561,24 +561,10 @@ function deckCardHTML(d, index){
             })()
           : ''
       }</div>
-              <div class="habit">${habitStripHTML(d)}</div>
-        ${(() => {
-          const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
-          const goal = d.repsGoal || 1;
-          const done = cur >= goal;
-          return `
-            <span class="label" style="margin-top:16px">Reps this session — goal ${goal}</span>
-            <div class="row">
-              <button class="btn ghost small rep-pill ${done ? 'done' : ''}"
-                      data-act="rep-plus" data-id="${d.id}"
-                      title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                🎯 ${cur}/${goal} reps
-              </button>
-            </div>`;
-        })()}
-        ${d.addGoal > 0 ? (() => {
+      <div class="habit">${habitStripHTML(d)}</div>
+      <div class="row">
         <button class="btn primary" data-act="open-deck" data-id="${d.id}">Open</button>
-                <button class="btn ${count >= goal ? 'done' : ''}" data-act="tick-day" data-id="${d.id}" data-date="${today}">✓ ${count}/${goal} today</button>
+        <button class="btn ${count >= goal ? 'done' : ''}" data-act="tick-day" data-id="${d.id}" data-date="${today}">✓ ${count}/${goal} today</button>
         <button class="btn ghost" data-act="del-deck" data-id="${d.id}" title="Delete deck">🗑️</button>
       </div>
     </div>`;
@@ -648,7 +634,21 @@ function renderDeck(){
             ? `<button class="btn ghost small" data-act="reset-studied-today" data-id="${d.id}">↺ Reset studied today</button>`
             : ''}
         </div>
-        <div class="habit">${habitStripHTML(d)}</div>
+                <div class="habit">${habitStripHTML(d)}</div>
+        ${(() => {
+          const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
+          const goal = d.repsGoal || 1;
+          const done = cur >= goal;
+          return `
+            <span class="label" style="margin-top:16px">Reps this session — goal ${goal}</span>
+            <div class="row">
+              <button class="btn ghost small rep-pill ${done ? 'done' : ''}"
+                      data-act="rep-plus" data-id="${d.id}"
+                      title="Tap to add a rep. Tap again once past the goal to reset to 0.">
+                🎯 ${cur}/${goal} reps
+              </button>
+            </div>`;
+        })()}
         ${d.addGoal > 0 ? (() => {
           const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
           const done = n >= d.addGoal;
