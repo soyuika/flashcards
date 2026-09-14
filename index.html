@@ -641,8 +641,11 @@ function renderDeck(){
           so they don't pile up here.
         </p>
                 <div class="row">
-          <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
-          ${d.lastTransfer ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>` : ''}
+                    <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
+          ${(d.lastTransfer && d.lastTransfer.removedCards)
+            ? `<button class="btn" data-act="undo-transfer" data-id="${d.id}">↺ Undo last transfer</button>`
+              + `<button class="btn danger" data-act="forget-transfer" data-id="${d.id}" title="Permanently drop the stored cards so the last transfer cannot be undone">🗑️ Forget last transfer</button>`
+            : ''}
           <span class="muted small">
             ${d.lastTransfer
               ? `Last transfer: ${esc(d.lastTransfer.date)} · removed ${d.lastTransfer.count} card${d.lastTransfer.count === 1 ? '' : 's'}`
@@ -1973,7 +1976,25 @@ document.addEventListener('click', e => {
         d.addedLog[date] = (d.addedLog[date] || 0) + logDelta;
       }
 
-      d.lastTransfer = null;
+            d.lastTransfer = null;
+      saveState();
+      render();
+      break;
+    }
+
+    case 'forget-transfer': {
+      const d = getDeck(id || view.deckId);
+      if(!d || !d.lastTransfer || !d.lastTransfer.removedCards) break;
+      const { date, count } = d.lastTransfer;
+      if(!confirm('Permanently forget the last transfer?\n\n'
+                + count + ' card' + (count === 1 ? '' : 's') + ' removed on ' + date + ' '
+                + 'will no longer be recoverable.\n\nThis frees up storage. '
+                + 'The "Last transfer" note stays, but Undo will disappear.')) break;
+
+      d.lastTransfer = {
+        date: date,
+        count: count
+      };
       saveState();
       render();
       break;
