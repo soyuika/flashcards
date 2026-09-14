@@ -561,8 +561,22 @@ function deckCardHTML(d, index){
             })()
           : ''
       }</div>
-      <div class="habit">${habitStripHTML(d)}</div>
-      <div class="row">
+              <div class="habit">${habitStripHTML(d)}</div>
+        ${(() => {
+          const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
+          const goal = d.repsGoal || 1;
+          const done = cur >= goal;
+          return `
+            <span class="label" style="margin-top:16px">Reps this session — goal ${goal}</span>
+            <div class="row">
+              <button class="btn ghost small rep-pill ${done ? 'done' : ''}"
+                      data-act="rep-plus" data-id="${d.id}"
+                      title="Tap to add a rep. Tap again once past the goal to reset to 0.">
+                🎯 ${cur}/${goal} reps
+              </button>
+            </div>`;
+        })()}
+        ${d.addGoal > 0 ? (() => {
         <button class="btn primary" data-act="open-deck" data-id="${d.id}">Open</button>
                 <button class="btn ${count >= goal ? 'done' : ''}" data-act="tick-day" data-id="${d.id}" data-date="${today}">✓ ${count}/${goal} today</button>
         <button class="btn ghost" data-act="del-deck" data-id="${d.id}" title="Delete deck">🗑️</button>
@@ -673,20 +687,8 @@ function renderDeck(){
     </div>
     
     <div class="deck-col">
-            <section class="panel panel-drill">
-        <div class="panel-head">
-          <h2>Start drilling</h2>
-                    ${(() => {
-            const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
-            const goal = d.repsGoal || 1;
-            const done = cur >= goal;
-            return `<button class="btn ghost small rep-pill ${done ? 'done' : ''}"
-                            data-act="rep-plus" data-id="${d.id}"
-                            title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                                            🎯 ${cur}/${goal} reps this session
-                    </button>`;
-          })()}
-        </div>
+                  <section class="panel panel-drill">
+        <h2>Start drilling</h2>
         <div class="opts">
           <div>
             <span class="label">Mode</span>
