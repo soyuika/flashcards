@@ -664,7 +664,7 @@ function renderDeck(){
             return `<button class="btn ghost small rep-pill ${done ? 'done' : ''}"
                             data-act="rep-plus" data-id="${d.id}"
                             title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                      🎯 ${cur}/${goal} reps today
+                                            🎯 ${cur}/${goal} reps this session
                     </button>`;
           })()}
         </div>
@@ -1614,12 +1614,17 @@ function renderSession(){
           ${esc(deck.name)} · ${session.mode === 'flash' ? 'Flashcards' : 'Quiz'} · ${session.dir === 'fb' ? 'Front → Back' : 'Back → Front'}${rangeNote}
         </span>
         ${!state.settings.hideTimer ? `
-          <div class="clock-row">
+                    <div class="clock-row">
             <span class="clock" id="clock">${clockText()}</span>
             ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
+            ${session.paused ? '<span class="timer" style="color:var(--muted)">⏸ paused</span>' : ''}
           </div>` : ''}
       </div>
-                  <button class="btn ghost small" data-act="toggle-timer"
+                        <button class="btn ghost small" data-act="toggle-pause"
+              title="${session.paused ? 'Resume timer' : 'Pause timer'}">
+        ${session.paused ? '▶' : '⏸'}
+      </button>
+      <button class="btn ghost small" data-act="toggle-timer"
               title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
         ${state.settings.hideTimer ? '👁' : '⏱'}
       </button>
@@ -1733,7 +1738,7 @@ function renderResults(deck){
             return `<button class="btn rep-pill ${rdone ? 'done' : ''}"
                             data-act="rep-plus" data-id="${deck.id}"
                             title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                      🎯 Reps today: ${rcur}/${rgoal}
+                                            🎯 Reps this session: ${rcur}/${rgoal}
                     </button>`;
           })()}
           <span class="spacer"></span>
@@ -2015,10 +2020,17 @@ document.addEventListener('click', e => {
       startSession(view.deckId);
       break;
 
-    case 'toggle-timer':
+        case 'toggle-timer':
       state.settings.hideTimer = !state.settings.hideTimer;
       saveState();
       render();
+      break;
+
+    case 'toggle-pause':
+      if(session && !session.finished){
+        session.paused = !session.paused;
+        render();
+      }
       break;
 
     case 'reveal':
