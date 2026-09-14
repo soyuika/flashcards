@@ -372,6 +372,15 @@ function fmtPerCard(secPerCard){
   const s = Math.round(secPerCard % 60);
   return m + 'm ' + s + 's';
 }
+function fmtDuration(sec){
+  sec = Math.max(0, Math.floor(sec || 0));
+  if(sec < 60) return sec + 's';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if(h > 0) return h + 'h ' + m + 'm';
+  return m + 'm ' + s + 's';
+}
 
 /* =========================================================
    STORAGE
@@ -432,8 +441,10 @@ function loadState(){
     d.studiedLog = d.studiedLog || {};
         // Info about the last "transferred into Anki" purge, e.g. { date, count } or null
     d.lastTransfer = d.lastTransfer || null;
-    // Per-day count of "reps" (passes through the deck) ticked by the user
+        // Per-day count of "reps" (passes through the deck) ticked by the user
     d.repsLog = d.repsLog || {};
+    // Per-day seconds of drilling time confirmed by the user from the results screen
+    d.drillTimeLog = d.drillTimeLog || {};
   });
   return s;
 }
@@ -700,7 +711,7 @@ function renderDeck(){
             : ''}
         </div>
                 <div class="habit">${habitStripHTML(d)}</div>
-        ${(() => {
+                ${(() => {
           const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
           const goal = d.repsGoal || 1;
           const done = cur >= goal;
@@ -712,6 +723,15 @@ function renderDeck(){
                       title="Tap to add a rep. Tap again once past the goal to reset to 0.">
                 🎯 ${cur}/${goal} reps
               </button>
+            </div>`;
+        })()}
+        ${(() => {
+          const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
+          if(secs <= 0) return '';
+          return `
+            <span class="label" style="margin-top:16px">Time drilled today</span>
+            <div class="row">
+              <span class="pill" style="font-size:13px; padding:6px 12px">⏱️ ${fmtDuration(secs)}</span>
             </div>`;
         })()}
         ${d.addGoal > 0 ? (() => {
@@ -1546,10 +1566,11 @@ function startSession(deckId, opts){
     right: 0,
     wrong: 0,
     answered: 0,
-    revealed: false,
+        revealed: false,
     options: null,
     picked: null,
-    finished: false
+    finished: false,
+    timeAdded: false
   };
 
   startClock();
@@ -1876,7 +1897,7 @@ function renderResults(deck){
                     <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
         </div>
                 ${paceLine(deck) ? `<div class="pace" style="margin-top:8px">${paceLine(deck)}</div>` : ''}
-                <div class="modal-actions">
+                        <div class="modal-actions">
                     ${(() => {
             const rcur  = (deck.repsLog && deck.repsLog[today]) || 0;
             const rgoal = deck.repsGoal || 1;
@@ -1887,6 +1908,15 @@ function renderResults(deck){
                                             🎯 Reps this session: ${rcur}/${rgoal}
                     </button>`;
           })()}
+          <button class="btn ${session.timeAdded ? 'done' : ''}"
+                  data-act="add-drill-time"
+                  title="${session.timeAdded
+                    ? 'Tap to remove this session\u2019s time from today\u2019s total'
+                    : 'Add this session\u2019s time to today\u2019s drilling total'}">
+            ⏱️ ${session.timeAdded
+              ? 'Added ' + fmtTime(session.elapsed) + ' — tap to undo'
+              : 'Add ' + fmtTime(session.elapsed) + ' to today'}
+          </button>
           <span class="spacer"></span>
           <button class="btn" data-act="back-deck">Back to deck</button>
           <button class="btn primary" data-act="again">Drill again</button>
@@ -2262,9 +2292,28 @@ document.addEventListener('click', e => {
       restartSession();
       break;
 
-    case 'tick-today':
+        case 'tick-today':
       if(session) tickDay(session.deckId, dayKey());
       break;
+
+    case 'add-drill-time': {
+      if(!session || !session.finished) break;
+      const d = getDeck(session.deckId);
+      if(!d) break;
+      const today = dayKey();
+      d.drillTimeLog = d.drillTimeLog || {};
+      if(session.timeAdded){
+        d.drillTimeLog[today] = Math.max(0, (d.drillTimeLog[today] || 0) - session.elapsed);
+        if(d.drillTimeLog[today] === 0) delete d.drillTimeLog[today];
+        session.timeAdded = false;
+      } else {
+        d.drillTimeLog[today] = (d.drillTimeLog[today] || 0) + session.elapsed;
+        session.timeAdded = true;
+      }
+      saveState();
+      render();
+      break;
+    }
   }
 });
 
