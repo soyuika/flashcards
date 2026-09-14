@@ -862,9 +862,12 @@ function renderDeck(){
     </div>
       
                   <section class="panel panel-cards">
-        <div class="panel-head">
+                <div class="panel-head">
           <h2>Cards (${total})</h2>
-          <button class="btn primary" data-act="new-card">+ Add card</button>
+          <div class="row" style="gap:6px">
+            <button class="btn" data-act="export-text" data-id="${d.id}" ${total === 0 ? 'disabled' : ''}>📄 Export text</button>
+            <button class="btn primary" data-act="new-card">+ Add card</button>
+          </div>
         </div>
         ${total
           ? `<div class="card-list">${d.cards.map((c, i) => cardRowHTML(c, i)).join('')}</div>`
@@ -932,6 +935,124 @@ function paceLine(deck){
   const month = n * 30;
   return '📈 If you keep this pace (<b>' + n + '</b> card' + (n === 1 ? '' : 's') + '/day), '
        + 'you\u2019ll cover ~<b>' + week + '</b> this week and ~<b>' + month + '</b> this month.';
+}
+
+/* =========================================================
+   EXPORT AS TEXT
+   ========================================================= */
+function sideToText(side){
+  const text = (side && side.text ? side.text : '').trim();
+  const hasImg = !!(side && side.img);
+  if(text) return text;                    // image silently dropped if text present
+  if(hasImg) return '[image only]';        // flag image-only sides
+  return '';                               // truly blank side → empty line
+}
+
+function buildDeckText(cards){
+  const blocks = cards.map(c => {
+    return sideToText(c.front) + '\n' + sideToText(c.back);
+  });
+  // Join with `--` on its own line, and end with a trailing `--` for uniformity
+  return blocks.join('\n--\n') + '\n--\n';
+}
+
+function downloadTextFile(text, filename){
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openTextExportModal(deckId){
+  const d = getDeck(deckId);
+  if(!d) return;
+  if(!d.cards.length){ alert('This deck has no cards to export.'); return; }
+
+  const today = dayKey();
+  const safeName = (d.name || 'deck').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'deck';
+
+  openModal(`
+    <h2>📄 Export as text</h2>
+    <p class="muted small" style="margin-top:0">
+      Format: <code>front</code>, newline, <code>back</code>, then <code>--</code> after each card.
+      Images are skipped; image-only sides are marked <code>[image only]</code>.
+    </p>
+
+    <div class="opts" style="gap:10px">
+      <label class="check">
+        <input type="radio" name="te-mode" value="all" checked>
+        All cards in this deck (${d.cards.length})
+      </label>
+      <label class="check">
+        <input type="radio" name="te-mode" value="day">
+        Only cards added on a specific day
+      </label>
+    </div>
+
+    <div id="te-day-block" style="display:none">
+      <label class="field"><span>Day</span>
+        <input type="date" id="te-date" value="${today}" max="${today}">
+      </label>
+      <p class="muted small" id="te-preview" style="margin-top:-6px"></p>
+    </div>
+
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn" id="te-cancel">Cancel</button>
+      <button class="btn primary" id="te-go">Download .txt</button>
+    </div>
+  `, root => {
+    const modeRadios = root.querySelectorAll('input[name="te-mode"]');
+    const dayBlock   = root.querySelector('#te-day-block');
+    const dateEl     = root.querySelector('#te-date');
+    const previewEl  = root.querySelector('#te-preview');
+
+    function updateDayPreview(){
+      if(!dateEl || !previewEl) return;
+      const date = dateEl.value;
+      const n = d.cards.filter(c => c.addedAt === date).length;
+      previewEl.textContent = n === 0
+        ? 'No cards were added on this day.'
+        : n + ' card' + (n === 1 ? '' : 's') + ' from this day will be exported.';
+    }
+
+    function updateVisibility(){
+      const mode = root.querySelector('input[name="te-mode"]:checked').value;
+      dayBlock.style.display = (mode === 'day') ? '' : 'none';
+      if(mode === 'day') updateDayPreview();
+    }
+
+    modeRadios.forEach(r => { r.onchange = updateVisibility; });
+    if(dateEl) dateEl.oninput = updateDayPreview;
+    updateVisibility();
+
+    root.querySelector('#te-cancel').onclick = closeModal;
+
+    root.querySelector('#te-go').onclick = () => {
+      const mode = root.querySelector('input[name="te-mode"]:checked').value;
+      let cards, suffix;
+      if(mode === 'all'){
+        cards = d.cards;
+        suffix = 'all';
+      } else {
+        const date = dateEl.value;
+        cards = d.cards.filter(c => c.addedAt === date);
+        suffix = date;
+      }
+      if(!cards.length){
+        alert('No cards match that selection.');
+        return;
+      }
+      const text = buildDeckText(cards);
+      downloadTextFile(text, 'linguadrill_' + safeName + '_' + suffix + '.txt');
+      closeModal();
+    };
+  });
 }
 
 /* =========================================================
@@ -2122,8 +2243,12 @@ document.addEventListener('click', e => {
       openNewDeck();
       break;
 
-    case 'export-deck':
+        case 'export-deck':
       exportDeck(id || view.deckId);
+      break;
+
+    case 'export-text':
+      openTextExportModal(id || view.deckId);
       break;
 
     case 'import-deck':
