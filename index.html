@@ -407,8 +407,10 @@ function loadState(){
     d.addedLog = d.addedLog || {};
         // Per-day log of how many distinct cards were studied in this deck
     d.studiedLog = d.studiedLog || {};
-    // Info about the last "transferred into Anki" purge, e.g. { date, count } or null
+        // Info about the last "transferred into Anki" purge, e.g. { date, count } or null
     d.lastTransfer = d.lastTransfer || null;
+    // Per-day count of "reps" (passes through the deck) ticked by the user
+    d.repsLog = d.repsLog || {};
   });
   return s;
 }
@@ -652,8 +654,20 @@ function renderDeck(){
     </div>
     
     <div class="deck-col">
-      <section class="panel panel-drill">
-        <h2>Start drilling</h2>
+            <section class="panel panel-drill">
+        <div class="panel-head">
+          <h2>Start drilling</h2>
+          ${(() => {
+            const cur  = (d.repsLog && d.repsLog[dayKey()]) || 0;
+            const goal = d.repsGoal || 1;
+            const done = cur >= goal;
+            return `<button class="btn ghost small rep-pill ${done ? 'done' : ''}"
+                            data-act="reps-modal" data-id="${d.id}"
+                            title="Today's reps — tap to adjust">
+                      🎯 ${cur}/${goal} reps today
+                    </button>`;
+          })()}
+        </div>
         <div class="opts">
           <div>
             <span class="label">Mode</span>
@@ -1411,7 +1425,6 @@ function startSession(deckId, opts){
         right: 0,
     wrong: 0,
     answered: 0,
-    repsDone: 0,
     revealed: false,
     options: null,
     picked: null,
@@ -1606,12 +1619,7 @@ function renderSession(){
             ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
           </div>` : ''}
       </div>
-            <button class="btn ghost small rep-pill ${(session.repsDone || 0) >= (deck.repsGoal || 1) ? 'done' : ''}"
-              data-act="rep-plus"
-              title="Tap when you finish a pass through the deck. Tap again past the goal to reset to 0.">
-        🎯 ${session.repsDone || 0}/${deck.repsGoal || 1}
-      </button>
-      <button class="btn ghost small" data-act="toggle-timer"
+                  <button class="btn ghost small" data-act="toggle-timer"
               title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
         ${state.settings.hideTimer ? '👁' : '⏱'}
       </button>
@@ -1717,8 +1725,17 @@ function renderResults(deck){
                     <div class="stat"><b>${acc}%</b><span>accuracy</span></div>
         </div>
                 ${paceLine(deck) ? `<div class="pace" style="margin-top:8px">${paceLine(deck)}</div>` : ''}
-        <div class="modal-actions">
-                    <button class="btn" data-act="tick-today">✓ Mark today's session (${done}/${goal})</button>
+                <div class="modal-actions">
+          ${(() => {
+            const rcur  = (deck.repsLog && deck.repsLog[today]) || 0;
+            const rgoal = deck.repsGoal || 1;
+            const rdone = rcur >= rgoal;
+            return `<button class="btn rep-pill ${rdone ? 'done' : ''}"
+                            data-act="reps-modal" data-id="${deck.id}"
+                            title="Today's reps — tap to adjust">
+                      🎯 Reps today: ${rcur}/${rgoal}
+                    </button>`;
+          })()}
           <span class="spacer"></span>
           <button class="btn" data-act="back-deck">Back to deck</button>
           <button class="btn primary" data-act="again">Drill again</button>
@@ -1740,6 +1757,78 @@ function restartSession(){
   clearInterval(clockHandle);
   session = null;
   startSession(deckId, opts);
+}
+
+/* =========================================================
+   REPS TRACKER (per-day passes through the deck)
+   ========================================================= */
+function openRepsModal(deckId, date){
+  const d = getDeck(deckId);
+  if(!d) return;
+  date = date || dayKey();
+  const goal = d.repsGoal || 1;
+
+  function body(){
+    const cur = (d.repsLog && d.repsLog[date]) || 0;
+    const done = cur >= goal;
+    return `
+      <h2>🎯 Reps — ${date}</h2>
+      <p class="muted small" style="margin-top:0">
+        Goal: ${goal} rep${goal === 1 ? '' : 's'} (passes through the deck) today
+      </p>
+      <div class="row" style="justify-content:center; align-items:center; gap:18px; margin:24px 0 8px">
+        <button class="btn" id="rp-minus" style="width:56px; height:56px; font-size:24px; font-weight:800; border-radius:14px"
+                ${cur <= 0 ? 'disabled' : ''}>−</button>
+        <div style="font-size:52px; font-weight:800; min-width:90px; text-align:center; line-height:1; ${done ? 'color:var(--good)' : ''}">
+          ${cur}
+        </div>
+        <button class="btn primary" id="rp-plus" style="width:56px; height:56px; font-size:24px; font-weight:800; border-radius:14px">+</button>
+      </div>
+      <p class="small" style="text-align:center; margin-top:0; ${done ? 'color:var(--good); font-weight:700' : 'color:var(--muted)'}">
+        ${done ? '✓ goal reached' : (goal - cur) + ' more to reach goal'}
+      </p>
+      <div class="modal-actions" style="justify-content:center">
+        <button class="btn danger" id="rp-clear" ${cur <= 0 ? 'disabled' : ''}>Clear (0)</button>
+        <span class="spacer"></span>
+        <button class="btn primary" id="rp-done">Done</button>
+      </div>`;
+  }
+
+  openModal(body(), root => {
+    function wire(){
+      root.querySelector('#rp-minus').onclick = () => {
+        const cur = (d.repsLog && d.repsLog[date]) || 0;
+        const next = Math.max(0, cur - 1);
+        d.repsLog = d.repsLog || {};
+        if(next === 0) delete d.repsLog[date];
+        else d.repsLog[date] = next;
+        saveState();
+        render();
+        root.querySelector('.modal').innerHTML = body();
+        wire();
+      };
+      root.querySelector('#rp-plus').onclick = () => {
+        d.repsLog = d.repsLog || {};
+        d.repsLog[date] = (d.repsLog[date] || 0) + 1;
+        saveState();
+        render();
+        root.querySelector('.modal').innerHTML = body();
+        wire();
+      };
+      root.querySelector('#rp-clear').onclick = () => {
+        if(d.repsLog) delete d.repsLog[date];
+        saveState();
+        render();
+        root.querySelector('.modal').innerHTML = body();
+        wire();
+      };
+      root.querySelector('#rp-done').onclick = () => {
+        closeModal();
+        render();
+      };
+    }
+    wire();
+  });
 }
 
 /* =========================================================
@@ -1872,9 +1961,15 @@ document.addEventListener('click', e => {
       tickDay(id, el.dataset.date);
       break;
 
-    case 'open-habit':
+        case 'open-habit':
       openHabitModal(id, el.dataset.date);
       break;
+
+    case 'reps-modal': {
+      const did = id || (session && session.deckId) || view.deckId;
+      openRepsModal(did);
+      break;
+    }
 
     case 'reset-studied-today': {
       const d = getDeck(id || view.deckId);
@@ -1985,16 +2080,6 @@ document.addEventListener('click', e => {
       saveState();
       render();
       break;
-
-        case 'rep-plus': {
-      if(!session) break;
-      const d = getDeck(session.deckId);
-      const target = (d && d.repsGoal) || 1;
-      session.repsDone = (session.repsDone || 0) + 1;
-      if(session.repsDone > target) session.repsDone = 0;   // tap past goal = reset
-      render();
-      break;
-    }
 
     case 'reveal':
       if(session){ session.revealed = true; render(); }
