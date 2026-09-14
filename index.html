@@ -263,9 +263,11 @@
     position:fixed; inset:0; background:rgba(15,18,30,.5); z-index:60;
     display:flex; align-items:center; justify-content:center; padding:16px; overflow:auto;
   }
-  .modal{
+    .modal{
     background:#fff; border-radius:18px; padding:22px; width:100%; max-width:780px;
-    max-height:90vh; overflow:auto; box-shadow:0 30px 70px -25px rgba(0,0,0,.5);
+    max-height:90vh;
+    max-height:90dvh;   /* modern browsers: accounts for iOS/Android keyboard & browser chrome */
+    overflow:auto; box-shadow:0 30px 70px -25px rgba(0,0,0,.5);
   }
   .modal-actions{display:flex; gap:10px; align-items:center; margin-top:20px; flex-wrap:wrap}
   .field{display:block; margin-bottom:14px}
@@ -329,9 +331,10 @@
   .wrap.deck-view .seg-btn{ padding: 7px 11px; font-size: 13px }
   .wrap.deck-view .check{ margin: 4px 0 }
 
-  @media (max-width: 900px){
+    @media (max-width: 900px){
     .deck-cols{
       flex-direction: column;
+      align-items: stretch;
     }
     .deck-col{
       display: contents;
@@ -343,13 +346,18 @@
     .panel-cards       { order: 4; }
   }
 
-  @media (max-width:640px){
+    @media (max-width:640px){
     .editor-grid{grid-template-columns:1fr}
     .options{grid-template-columns:1fr}
     .stats{gap:16px}
     .stat b{font-size:20px}
     .brand{font-size:16px}
     .wrap{padding:16px 12px 60px}
+
+    /* Modal: anchor to the top so the header + rounded corners are never cut off */
+    .modal-backdrop{
+      align-items: flex-start;
+    }
   }
 </style>
 </head>
@@ -440,7 +448,7 @@ function blankState(){
     version: VERSION,
     decks: [],
     // Loop now defaults to ON: sessions keep going until you stop them.
-                        settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false, quizHarder: 'random' }
+                                                settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false, quizHarder: 'random', collapseDrill: false, collapseTransferred: false }
   };
 }
 function loadState(){
@@ -583,8 +591,16 @@ function speakCurrent(){
    MODAL
    ========================================================= */
 let modalCloseHook = null;
+let bodyScrollY = 0;
 function openModal(html, wire, onClose){
   modalCloseHook = onClose || null;
+  // iOS-friendly scroll lock: freeze the page at its current scroll position
+  bodyScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  document.body.style.position = 'fixed';
+  document.body.style.top = (-bodyScrollY) + 'px';
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
   modalRoot.innerHTML = '<div class="modal-backdrop"><div class="modal">' + html + '</div></div>';
   const backdrop = modalRoot.querySelector('.modal-backdrop');
   backdrop.addEventListener('mousedown', e => { if(e.target === backdrop) closeModal(); });
@@ -595,6 +611,12 @@ function closeModal(){
   modalCloseHook = null;
   if(fn){ try { fn(); } catch(e){} }
   modalRoot.innerHTML = '';
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+  window.scrollTo(0, bodyScrollY);
 }
 
 /* =========================================================
@@ -764,7 +786,7 @@ function renderDeck(){
 
         ${paceLine(d) ? `<div class="pace" style="margin-top:14px">${paceLine(d)}</div>` : ''}
 
-                <div class="row" style="margin-top:16px; justify-content:space-between; align-items:center; gap:12px; flex-wrap:nowrap">
+                                <div class="row" style="margin-top:16px; justify-content:space-between; align-items:center; gap:12px">
           <div class="row" style="gap:6px; flex-wrap:wrap; align-items:center">
             ${(() => {
               const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
@@ -795,11 +817,14 @@ function renderDeck(){
 <section class="panel panel-transferred">
         <div class="panel-head">
           <h2>📤 Transferred into Anki</h2>
+          <button class="icon-btn" data-act="toggle-collapse" data-id="collapseTransferred" title="Collapse / expand">${s.collapseTransferred ? '▸' : '▾'}</button>
         </div>
+        <div class="collapse-body" style="${s.collapseTransferred ? 'display:none' : ''}">
         <p class="muted small" style="margin-top:0">
           Once you've moved a day's newly-added cards into Anki, clear them from this deck
           so they don't pile up here.
         </p>
+        </div>
                 <div class="row">
                     <button class="btn primary" data-act="transfer-anki" data-id="${d.id}">Mark as transferred…</button>
           ${(d.lastTransfer && d.lastTransfer.removedCards)
@@ -817,8 +842,12 @@ function renderDeck(){
     </div>
     
     <div class="deck-col">
-                  <section class="panel panel-drill">
-        <h2>Start drilling</h2>
+                                    <section class="panel panel-drill">
+        <div class="panel-head">
+          <h2>Start drilling</h2>
+          <button class="icon-btn" data-act="toggle-collapse" data-id="collapseDrill" title="Collapse / expand">${s.collapseDrill ? '▸' : '▾'}</button>
+        </div>
+        <div class="collapse-body" style="${s.collapseDrill ? 'display:none' : ''}">
         <div class="opts">
                     <div>
             <span class="label">Mode</span>
@@ -901,6 +930,7 @@ function renderDeck(){
             <label class="check" style="margin-top:10px"><input type="checkbox" id="opt-speak" ${s.speak ? 'checked' : ''}> 🔊 Read the prompt aloud</label>
           </div>
         </div>
+                </div>
         <button class="btn primary big" data-act="start" ${total === 0 ? 'disabled' : ''}>▶ Start drilling</button>
         ${total === 0 ? '<p class="muted small" style="margin-top:10px">Add at least one card to start.</p>' : ''}
       </section>
@@ -1604,9 +1634,22 @@ function openCardEditor(deckId, cardId){
     </div>
   `, root => {
     ['front', 'back'].forEach(side => {
-      const ta = root.querySelector('textarea[data-side="' + side + '"]');
+            const ta = root.querySelector('textarea[data-side="' + side + '"]');
       ta.value = draft[side].text || '';
       ta.addEventListener('input', () => { draft[side].text = ta.value; });
+      ta.addEventListener('keydown', e => {
+        if(e.key === 'Enter' && !e.shiftKey){
+          e.preventDefault();
+          if(side === 'front'){
+            const backTa = root.querySelector('textarea[data-side="back"]');
+            if(backTa) backTa.focus();
+          } else {
+            const saveBtn = root.querySelector('#ce-save');
+            if(saveBtn) saveBtn.click();
+          }
+        }
+        // Shift+Enter falls through and inserts a newline (default behavior)
+      });
       renderPreview(root, side, draft);
 
       const file = root.querySelector('input[type="file"][data-upload="' + side + '"]');
@@ -2581,10 +2624,18 @@ document.addEventListener('click', e => {
         case 'set-mode':
       state.settings.mode = el.dataset.v; saveState(); render();
       break;
-    case 'set-quiz-harder':
+        case 'set-quiz-harder':
       state.settings.quizHarder = el.dataset.v || 'random';
       saveState(); render();
       break;
+    case 'toggle-collapse': {
+      const key = el.dataset.id;
+      if(key === 'collapseDrill' || key === 'collapseTransferred'){
+        state.settings[key] = !state.settings[key];
+        saveState(); render();
+      }
+      break;
+    }
     case 'set-dir':
       state.settings.dir = el.dataset.v; saveState(); render();
       break;
