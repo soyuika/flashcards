@@ -487,23 +487,6 @@ function fmtTime(sec){
   const m = Math.floor(sec / 60), s = sec % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
-function fmtPerCard(secPerCard){
-  if(!isFinite(secPerCard) || secPerCard <= 0) return '—';
-  if(secPerCard < 10)  return secPerCard.toFixed(1) + 's';
-  if(secPerCard < 60)  return Math.round(secPerCard) + 's';
-  const m = Math.floor(secPerCard / 60);
-  const s = Math.round(secPerCard % 60);
-  return m + 'm ' + s + 's';
-}
-function fmtDuration(sec){
-  sec = Math.max(0, Math.floor(sec || 0));
-  if(sec < 60) return sec + 's';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if(h > 0) return h + 'h ' + m + 'm';
-  return m + 'm ' + s + 's';
-}
 
 /* =========================================================
    STORAGE
@@ -540,13 +523,13 @@ function loadState(){
     d.cards = Array.isArray(d.cards) ? d.cards : [];
     d.habit = d.habit || {};
         // Migrate old single "goal" into two goals: sessions per day × reps per session
-    if(typeof d.sessionsGoal !== 'number' || d.sessionsGoal < 1){
+        if(typeof d.sessionsGoal !== 'number' || d.sessionsGoal < 1){
       d.sessionsGoal = (typeof d.goal === 'number' && d.goal >= 1) ? d.goal : 3;
     }
-    if(typeof d.repsGoal !== 'number' || d.repsGoal < 1){
-      d.repsGoal = 1;
-    }
-    delete d.goal;   // legacy; total is d.sessionsGoal * d.repsGoal
+    delete d.goal;
+    delete d.repsGoal;
+    delete d.repsLog;
+    delete d.drillTimeLog;
     d.lang = d.lang || 'en-US';
     d.cards.forEach(c => {
       c.front = c.front || { text: '', img: null };
@@ -564,11 +547,7 @@ function loadState(){
     d.studiedLog = d.studiedLog || {};
         // Info about the last "transferred into Anki" purge, e.g. { date, count } or null
     d.lastTransfer = d.lastTransfer || null;
-        // Per-day count of "reps" (passes through the deck) ticked by the user
-    d.repsLog = d.repsLog || {};
-    // Per-day seconds of drilling time confirmed by the user from the results screen
-    d.drillTimeLog = d.drillTimeLog || {};
-  });
+        });
   return s;
 }
 function saveState(){
@@ -756,7 +735,6 @@ function deckCardHTML(d, index){
   const today = dayKey();
   const count = d.habit[today] || 0;
   const goal = d.sessionsGoal || 3;
-  const reps = d.repsGoal || 1;
   return `
     <div class="deck-card">
       <div class="deck-top">
@@ -769,7 +747,7 @@ function deckCardHTML(d, index){
                   ${index === state.decks.length - 1 ? 'disabled' : ''} title="Move down">▼</button>
         </div>
       </div>
-      <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day × ${reps} rep${reps === 1 ? '' : 's'}${
+            <div class="muted small">${total} card${total === 1 ? '' : 's'} · goal ${goal} session${goal === 1 ? '' : 's'}/day${
         d.addGoal > 0
           ? (() => {
               const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
@@ -843,7 +821,7 @@ function renderDeck(){
         <div class="habit">${habitStripHTML(d)}</div>
 
         <div class="row" style="justify-content:space-between; align-items:baseline; margin-top:10px">
-          <span class="muted small">${d.sessionsGoal || 3} session${(d.sessionsGoal || 3) === 1 ? '' : 's'}/day × ${d.repsGoal || 1} rep${(d.repsGoal || 1) === 1 ? '' : 's'}</span>
+                    <span class="muted small">${d.sessionsGoal || 3} session${(d.sessionsGoal || 3) === 1 ? '' : 's'}/day</span>
           ${(d.studiedLog && d.studiedLog[dayKey()])
             ? `<button class="btn ghost small" data-act="reset-studied-today" data-id="${d.id}">↺ Reset studied today</button>`
             : ''}
@@ -851,34 +829,15 @@ function renderDeck(){
 
         ${paceLine(d) ? `<div class="pace" style="margin-top:14px">${paceLine(d)}</div>` : ''}
 
-                                <div class="row" style="margin-top:16px; justify-content:space-between; align-items:center; gap:12px">
-                    <div class="row" style="gap:6px; flex-wrap:wrap; align-items:center">
-            ${(() => {
-              const secs = (d.drillTimeLog && d.drillTimeLog[dayKey()]) || 0;
-              const repsCur = (d.repsLog && d.repsLog[dayKey()]) || 0;
-              const repsGoal = d.repsGoal || 1;
-              const repsDone = repsCur >= repsGoal;
-              let html = '';
-              if(secs > 0){
-                html += `<span class="mini-chip">⏱️ <span class="mini-label">Time</span> <b>${fmtDuration(secs)}</b></span>`;
-              }
-              html += `<button class="mini-chip ${repsDone ? 'done' : ''}" data-act="rep-plus" data-id="${d.id}" title="Tap to add a rep. Tap again once past the goal to reset to 0.">🎯 <span class="mini-label">Reps</span> <b>${repsCur}/${repsGoal}</b></button>`;
-              if(repsCur > 0){
-                html += `<button class="mini-chip" data-act="rep-reset" data-id="${d.id}" title="Reset today's reps to 0" style="padding:5px 8px">↺</button>`;
-              }
-              return html;
-            })()}
-          </div>
-          <div class="stats" style="margin:0; gap:18px; flex-wrap:nowrap">
-            ${(() => {
-              const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
-              const goal = d.addGoal || 0;
-              const done = goal > 0 && n >= goal;
-              return `<div class="stat" style="${done ? 'color:var(--good)' : ''}"><b>${goal > 0 ? n + '/' + goal : n}</b><span>cards added${done ? ' ✓' : ''}</span></div>`;
-            })()}
-            <div class="stat"><b>${newCount}</b><span>not studied</span></div>
-            <div class="stat"><b>${learned}</b><span>studied</span></div>
-          </div>
+                                        <div class="stats" style="margin:16px 0 0; gap:18px; flex-wrap:nowrap">
+          ${(() => {
+            const n = (d.addedLog && d.addedLog[dayKey()]) || 0;
+            const goal = d.addGoal || 0;
+            const done = goal > 0 && n >= goal;
+            return `<div class="stat" style="${done ? 'color:var(--good)' : ''}"><b>${goal > 0 ? n + '/' + goal : n}</b><span>cards added${done ? ' ✓' : ''}</span></div>`;
+          })()}
+          <div class="stat"><b>${newCount}</b><span>not studied</span></div>
+          <div class="stat"><b>${learned}</b><span>studied</span></div>
         </div>
             </section>
 
@@ -1365,8 +1324,7 @@ function openImportModal(deck, fileName){
           id: uid(),
           name: name,
           lang: deck.lang || 'en-US',
-                    sessionsGoal: deck.sessionsGoal || deck.goal || 3,
-          repsGoal: deck.repsGoal || 1,
+                                        sessionsGoal: deck.sessionsGoal || deck.goal || 3,
           addGoal: deck.addGoal || 0,
           addedLog: deck.addedLog || {},
           createdAt: Date.now(),
@@ -1419,10 +1377,7 @@ function openNewDeck(){
                 <label class="field"><span>Drill sessions per day</span>
       <input id="nd-sessions" type="number" min="1" max="20" value="3">
     </label>
-    <label class="field"><span>Reps (passes through the deck) per session</span>
-      <input id="nd-reps" type="number" min="1" max="20" value="1">
-    </label>
-    <label class="field"><span>Daily "add cards" goal (0 = off)</span>
+        <label class="field"><span>Daily "add cards" goal (0 = off)</span>
       <input id="nd-addgoal" type="number" min="0" max="50" value="0">
     </label>
     <div class="modal-actions">
@@ -1440,8 +1395,7 @@ function openNewDeck(){
         name: nameEl.value.trim() || 'New deck',
         lang: root.querySelector('#nd-lang').value,
                 sessionsGoal: Math.max(1, parseInt(root.querySelector('#nd-sessions').value, 10) || 3),
-        repsGoal: Math.max(1, parseInt(root.querySelector('#nd-reps').value, 10) || 1),
-        addGoal: Math.max(0, parseInt(root.querySelector('#nd-addgoal').value, 10) || 0),
+                addGoal: Math.max(0, parseInt(root.querySelector('#nd-addgoal').value, 10) || 0),
         addedLog: {},
         createdAt: Date.now(),
         habit: {},
@@ -1471,10 +1425,7 @@ function openDeckSettings(deckId){
                 <label class="field"><span>Drill sessions per day</span>
       <input id="ds-sessions" type="number" min="1" max="20" value="${d.sessionsGoal || 3}">
     </label>
-    <label class="field"><span>Reps (passes through the deck) per session</span>
-      <input id="ds-reps" type="number" min="1" max="20" value="${d.repsGoal || 1}">
-    </label>
-    <label class="field"><span>Daily "add cards" goal (0 = off)</span>
+        <label class="field"><span>Daily "add cards" goal (0 = off)</span>
       <input id="ds-addgoal" type="number" min="0" max="50" value="${d.addGoal || 0}">
     </label>
     <div class="modal-actions">
@@ -1490,8 +1441,7 @@ function openDeckSettings(deckId){
       d.name = root.querySelector('#ds-name').value.trim() || d.name;
       d.lang = root.querySelector('#ds-lang').value;
             d.sessionsGoal = Math.max(1, parseInt(root.querySelector('#ds-sessions').value, 10) || 1);
-      d.repsGoal = Math.max(1, parseInt(root.querySelector('#ds-reps').value, 10) || 1);
-      d.addGoal = Math.max(0, parseInt(root.querySelector('#ds-addgoal').value, 10) || 0);
+            d.addGoal = Math.max(0, parseInt(root.querySelector('#ds-addgoal').value, 10) || 0);
       saveState(); closeModal(); render();
     };
     root.querySelector('#ds-reset').onclick = () => {
@@ -1885,8 +1835,7 @@ function startSession(deckId, opts){
     speak: !!o.speak,
     timerMin: o.timer || 0,
     remaining: (o.timer || 0) > 0 ? o.timer * 60 : 0,
-    paused: false,
-    elapsed: 0,
+        paused: false,
     poolIds: poolIds,
     queue: shuffle(poolIds),
         idx: 0,
@@ -1899,9 +1848,8 @@ function startSession(deckId, opts){
             revealed: false,
     options: null,
     picked: null,
-    typeResult: null,      // { typed, ok, correct } during type-in mode
-    finished: false,
-    timeAdded: false
+        typeResult: null,      // { typed, ok, correct } during type-in mode
+    finished: false
   };
 
   startClock();
@@ -1912,8 +1860,7 @@ function startSession(deckId, opts){
 function startClock(){
   clearInterval(clockHandle);
   clockHandle = setInterval(() => {
-    if(!session || session.finished || session.paused) return;
-    session.elapsed++;
+        if(!session || session.finished || session.paused) return;
     if(session.timerMin > 0){
       session.remaining--;
       if(session.remaining <= 0){
@@ -1927,12 +1874,8 @@ function startClock(){
   }, 1000);
 }
 
-function clockText(){ return '⏱ ' + fmtTime(session.elapsed); }
-
 function updateClock(){
   if(!session) return;
-  const c = document.getElementById('clock');
-  if(c) c.textContent = clockText();
   const t = document.getElementById('timer');
   if(t && session.timerMin > 0) t.textContent = '⏳ ' + fmtTime(Math.max(0, session.remaining));
 }
@@ -2213,22 +2156,16 @@ function renderSession(){
         <span class="muted small">
                     ${esc(deck.name)} · ${session.mode === 'flash' ? 'Flashcards' : session.mode === 'quiz' ? 'Quiz' : 'Type answer'} · ${session.dir === 'fb' ? 'Front → Back' : 'Back → Front'}${rangeNote}
         </span>
-        ${!state.settings.hideTimer ? `
+                ${(!state.settings.hideTimer && session.timerMin > 0) ? `
                     <div class="clock-row">
-            <span class="clock" id="clock">${clockText()}</span>
-            ${session.timerMin > 0 ? `<span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>` : ''}
-            ${session.paused ? '<span class="timer" style="color:var(--muted)">⏸ paused</span>' : ''}
+            <span class="timer" id="timer">⏳ ${fmtTime(session.remaining)}</span>
           </div>` : ''}
       </div>
-                                               <div class="session-actions">
-        <button class="btn ghost small" data-act="toggle-pause"
-                title="${session.paused ? 'Resume timer' : 'Pause timer'}">
-          ${session.paused ? '▶' : '⏸'}
-        </button>
-        <button class="btn ghost small" data-act="toggle-timer"
+                        <div class="session-actions">
+        ${session.timerMin > 0 ? `<button class="btn ghost small" data-act="toggle-timer"
                 title="${state.settings.hideTimer ? 'Show timer' : 'Hide timer'}">
           ${state.settings.hideTimer ? '👁' : '⏱'}
-        </button>
+                </button>` : ''}
         <div class="score"><span class="good">${session.right}</span> / <span class="bad">${session.wrong}</span></div>
       </div>
     </header>
@@ -2346,10 +2283,6 @@ function finishSession(){
 function renderResults(deck){
   const total = session.right + session.wrong;
   const acc = total ? Math.round(session.right / total * 100) : 0;
-  const perCard = total ? (session.elapsed / total) : 0;
-  const today = dayKey();
-  const done = deck.habit[today] || 0;
-  const goal = deck.sessionsGoal || 3;
 
   app.innerHTML = `
     <header class="topbar">
@@ -2358,9 +2291,7 @@ function renderResults(deck){
     <main class="wrap">
       <section class="panel results">
         <h2>Session complete 🎉</h2>
-                <div class="stats">
-          <div class="stat"><b>${fmtTime(session.elapsed)}</b><span>total time</span></div>
-          <div class="stat"><b>${fmtPerCard(perCard)}</b><span>per card</span></div>
+                                <div class="stats">
           <div class="stat"><b>${total}</b><span>cards answered</span></div>
           <div class="stat"><b class="good">${session.right}</b><span>right</span></div>
           <div class="stat"><b class="bad">${session.wrong}</b><span>wrong</span></div>
@@ -2368,25 +2299,7 @@ function renderResults(deck){
         </div>
                 ${paceLine(deck) ? `<div class="pace" style="margin-top:8px">${paceLine(deck)}</div>` : ''}
                         <div class="modal-actions">
-                    ${(() => {
-            const rcur  = (deck.repsLog && deck.repsLog[today]) || 0;
-            const rgoal = deck.repsGoal || 1;
-            const rdone = rcur >= rgoal;
-            return `<button class="btn rep-pill ${rdone ? 'done' : ''}"
-                            data-act="rep-plus" data-id="${deck.id}"
-                            title="Tap to add a rep. Tap again once past the goal to reset to 0.">
-                                            🎯 Reps this session: ${rcur}/${rgoal}
-                    </button>`;
-          })()}
-          <button class="btn ${session.timeAdded ? 'done' : ''}"
-                  data-act="add-drill-time"
-                  title="${session.timeAdded
-                    ? 'Tap to remove this session\u2019s time from today\u2019s total'
-                    : 'Add this session\u2019s time to today\u2019s drilling total'}">
-            ⏱️ ${session.timeAdded
-              ? 'Added ' + fmtTime(session.elapsed) + ' — tap to undo'
-              : 'Add ' + fmtTime(session.elapsed) + ' to today'}
-          </button>
+          <button class="btn" data-act="tick-today">✓ Mark today's session</button>
           <span class="spacer"></span>
           <button class="btn" data-act="back-deck">Back to deck</button>
           <button class="btn primary" data-act="again">Drill again</button>
@@ -2417,15 +2330,14 @@ function restartSession(){
 function openHabitModal(deckId, date){
   const d = getDeck(deckId);
   if(!d) return;
-    const goal = d.sessionsGoal || 3;
-  const reps = d.repsGoal || 1;
+      const goal = d.sessionsGoal || 3;
 
   function body(){
     const cur = d.habit[date] || 0;
     const done = cur >= goal;
     return `
       <h2>${date}</h2>
-            <p class="muted small" style="margin-top:0">${goal} session${goal === 1 ? '' : 's'}/day · ${reps} rep${reps === 1 ? '' : 's'} per session</p>
+            <p class="muted small" style="margin-top:0">${goal} session${goal === 1 ? '' : 's'}/day</p>
       <div class="row" style="justify-content:center; align-items:center; gap:18px; margin:24px 0 8px">
         <button class="btn" id="hb-minus" style="width:56px; height:56px; font-size:24px; font-weight:800; border-radius:14px"
                 ${cur <= 0 ? 'disabled' : ''}>−</button>
@@ -2561,49 +2473,7 @@ document.addEventListener('click', e => {
       openHabitModal(id, el.dataset.date);
       break;
 
-                  case 'rep-plus': {
-      const d = getDeck(id || (session && session.deckId) || view.deckId);
-      if(!d) break;
-      const today = dayKey();
-      const goal  = d.repsGoal || 1;
-      d.repsLog = d.repsLog || {};
-      d.habit   = d.habit   || {};
-      const cur = d.repsLog[today] || 0;
-
-      if(cur >= goal){
-        // Session already logged; this tap starts a fresh one
-        delete d.repsLog[today];
-      } else {
-        const next = cur + 1;
-        d.repsLog[today] = next;
-        if(next === goal){
-          // Reached the rep goal → auto-complete one session for today
-          d.habit[today] = (d.habit[today] || 0) + 1;
-        }
-      }
-      saveState();
-      render();
-      break;
-    }
-
-    case 'rep-reset': {
-      const d = getDeck(id || view.deckId);
-      if(!d) break;
-      const today = dayKey();
-      const cur = (d.repsLog && d.repsLog[today]) || 0;
-      if(!cur){
-        alert('No reps logged today.');
-        break;
-      }
-      if(!confirm('Reset today\u2019s reps from ' + cur + ' to 0?\n\n'
-                + 'Sessions already completed today are kept.')) break;
-      if(d.repsLog) delete d.repsLog[today];
-      saveState();
-      render();
-      break;
-    }
-
-    case 'reset-studied-today': {
+                      case 'reset-studied-today': {
       const d = getDeck(id || view.deckId);
       if(!d) break;
       const today = dayKey();
@@ -2756,14 +2626,7 @@ document.addEventListener('click', e => {
       render();
       break;
 
-    case 'toggle-pause':
-      if(session && !session.finished){
-        session.paused = !session.paused;
-        render();
-      }
-      break;
-
-        case 'type-submit': {
+            case 'type-submit': {
       if(!session || session.mode !== 'type') break;
       const inp = document.getElementById('type-input');
       const typed = inp ? inp.value : '';
@@ -2824,25 +2687,7 @@ document.addEventListener('click', e => {
       if(session) tickDay(session.deckId, dayKey());
       break;
 
-    case 'add-drill-time': {
-      if(!session || !session.finished) break;
-      const d = getDeck(session.deckId);
-      if(!d) break;
-      const today = dayKey();
-      d.drillTimeLog = d.drillTimeLog || {};
-      if(session.timeAdded){
-        d.drillTimeLog[today] = Math.max(0, (d.drillTimeLog[today] || 0) - session.elapsed);
-        if(d.drillTimeLog[today] === 0) delete d.drillTimeLog[today];
-        session.timeAdded = false;
-      } else {
-        d.drillTimeLog[today] = (d.drillTimeLog[today] || 0) + session.elapsed;
-        session.timeAdded = true;
       }
-      saveState();
-      render();
-      break;
-    }
-  }
 });
 
 /* =========================================================
