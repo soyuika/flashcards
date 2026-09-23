@@ -276,7 +276,25 @@
   .type-result.bad{
     background:var(--bad-soft); color:var(--bad); border:1px solid #f3c9c9;
   }
-  .type-result b{ font-weight:800 }
+    .type-result b{ font-weight:800 }
+
+  /* ---------- cloze cards ---------- */
+  .cloze-blank{
+    display:inline-block; min-width:2.5em; text-align:center;
+    background:var(--accent-soft); color:var(--accent);
+    border-bottom:2px solid var(--accent); border-radius:6px;
+    padding:0 8px; font-weight:700;
+  }
+  .cloze-revealed{
+    display:inline-block;
+    background:var(--good-soft); color:var(--good);
+    border-radius:6px; padding:0 8px; font-weight:800;
+  }
+  .cloze-syntax{
+    background:#f2f3f9; border:1px solid var(--border); border-radius:6px;
+    padding:1px 5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:12.5px; color:var(--text);
+  }
 
   .modal-backdrop{
     position:fixed; inset:0; background:rgba(15,18,30,.5); z-index:60;
@@ -488,6 +506,44 @@ function fmtTime(sec){
   return m + ':' + String(s).padStart(2, '0');
 }
 
+/* ---------- cloze helpers ---------- */
+function parseClozes(text){
+  const out = [];
+  const re = /\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g;
+  let m;
+  while((m = re.exec(text || ''))) out.push({ num: parseInt(m[1], 10), content: m[2], hint: m[3] || '' });
+  return out;
+}
+function clozeNumbers(text){
+  const s = new Set();
+  parseClozes(text).forEach(c => s.add(c.num));
+  return [...s].sort((a, b) => a - b);
+}
+function clozeContents(text, num){
+  return parseClozes(text).filter(c => c.num === num).map(c => c.content);
+}
+function clozePlainText(text){
+  return (text || '').replace(/\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g, (m, n, content) => content);
+}
+// mode: 'prompt' (hide the chosen cloze) or 'answer' (reveal it)
+function clozeTextToHTML(text, hideNum, mode){
+  const escaped = esc(text || '');
+  return escaped.replace(/\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g, (m, n, content, hint) => {
+    const num = parseInt(n, 10);
+    if(num === hideNum && mode === 'prompt'){
+      return '<span class="cloze-blank">' + (hint ? '[' + hint + ']' : '[...]') + '</span>';
+    }
+    if(num === hideNum && mode === 'answer'){
+      return '<span class="cloze-revealed">' + content + '</span>';
+    }
+    return content;   // other clozes just show their text
+  });
+}
+function clozeSideHTML(card, clozeNum, mode, cls){
+  const img = card.front.img ? `<img class="side-img" src="${card.front.img}" alt="">` : '';
+  const html = clozeTextToHTML(card.front.text, clozeNum, mode);
+  return `<div class="side ${cls}">${img}<div class="side-text">${html}</div></div>`;
+}
 /* =========================================================
    STORAGE
    ========================================================= */
@@ -531,9 +587,10 @@ function loadState(){
     delete d.repsLog;
     delete d.drillTimeLog;
     d.lang = d.lang || 'en-US';
-    d.cards.forEach(c => {
+        d.cards.forEach(c => {
       c.front = c.front || { text: '', img: null };
       c.back  = c.back  || { text: '', img: null };
+      c.type  = (c.type === 'cloze') ? 'cloze' : 'basic';
     });
     // Study range
     d.studyRange = d.studyRange || { enabled: false, from: null, to: null };
@@ -571,13 +628,14 @@ let lastPosChoice = '';
 // Lets `beforeunload` save the draft if the tab is closed mid-typing.
 let activeDraftSaver = null;
 
-function savePendingDraft(front, back, pos){
+function savePendingDraft(front, back, pos, type){
   const empty = side => !side || (!side.text?.trim() && !side.img);
   if(empty(front) && empty(back)){
     clearPendingDraft();
     return;
   }
   pendingDraft = {
+    type: (type === 'cloze') ? 'cloze' : 'basic',
     front: { text: (front && front.text) || '', img: (front && front.img) || null },
     back:  { text: (back  && back.text)  || '', img: (back  && back.img)  || null },
     pos: (typeof pos === 'string') ? pos : '',
@@ -625,8 +683,20 @@ function speakCurrent(){
   if(!session || !session.speak) return;
   const deck = getDeck(session.deckId);
   if(!deck) return;
-  const card = deck.cards.find(c => c.id === session.queue[session.idx]);
+  const item = session.queue[session.idx];
+  if(!item) return;
+  const card = deck.cards.find(c => c.id === item.cardId);
   if(!card) return;
+
+  // Cloze cards: don't read the prompt (it would give away the answer).
+  if(card.type === 'cloze' && item.clozeNum != null){
+    if(session.mode === 'flash' && !session.revealed) return;
+    if(session.mode === 'quiz'  && session.picked === null) return;
+    if(session.mode === 'type'  && !session.typeResult) return;
+    speak(clozePlainText(card.front.text), deck.lang);
+    return;
+  }
+
   const side = session.dir === 'fb' ? card.front : card.back;
   speak(side.text, deck.lang);
 }
@@ -1003,19 +1073,25 @@ function renderDeck(){
 
 function cardRowHTML(c, index){
   const f = c.front, b = c.back;
+  const isCloze = c.type === 'cloze';
+  const clozeCount = isCloze ? clozeNumbers(f.text).length : 0;
   return `
     <div class="card-row ${c.studied ? '' : 'is-new'}">
       <span class="card-num">${index + 1}</span>
       <div class="thumbs">
         ${f.img ? `<img src="${f.img}" alt="">` : ''}
-        ${b.img ? `<img src="${b.img}" alt="">` : ''}
+        ${!isCloze && b.img ? `<img src="${b.img}" alt="">` : ''}
       </div>
       <div class="card-texts">
-        <div class="side-line"><span class="tag">F</span><span>${esc(f.text) || '<i class="muted">(no text)</i>'}</span></div>
-        <div class="side-line"><span class="tag b">B</span><span>${esc(b.text) || '<i class="muted">(no text)</i>'}</span></div>
+        ${isCloze
+          ? `<div class="side-line"><span class="tag">T</span><span>${esc(f.text) || '<i class="muted">(no text)</i>'}</span></div>`
+          : `<div class="side-line"><span class="tag">F</span><span>${esc(f.text) || '<i class="muted">(no text)</i>'}</span></div>
+             <div class="side-line"><span class="tag b">B</span><span>${esc(b.text) || '<i class="muted">(no text)</i>'}</span></div>`
+        }
       </div>
       <div class="row-actions">
-        ${c.pos ? `<span class="tag" style="background:#f0f1f7; color:var(--muted); text-transform:lowercase; font-weight:600">${esc(c.pos)}</span>` : ''}
+        ${isCloze ? `<span class="tag" style="background:#e0f0ff; color:#0b6bc2">cloze ×${clozeCount}</span>` : ''}
+        ${(!isCloze && c.pos) ? `<span class="tag" style="background:#f0f1f7; color:var(--muted); text-transform:lowercase; font-weight:600">${esc(c.pos)}</span>` : ''}
         ${c.studied ? '' : '<span class="dot" title="Not studied yet"></span>'}
         <button class="icon-btn" data-act="edit-card" data-id="${c.id}" title="Edit">✏️</button>
         <button class="icon-btn" data-act="del-card" data-id="${c.id}" title="Delete">🗑️</button>
@@ -1049,12 +1125,13 @@ function sideToText(side){
 
 function buildDeckText(cards){
   const blocks = cards.map(c => {
+    if(c.type === 'cloze') return sideToText(c.front);
     return sideToText(c.front) + '\n' + sideToText(c.back);
   });
   // Join with `--` on its own line, and end with a trailing `--` for uniformity
   return blocks.join('\n--\n') + '\n--\n';
 }
-
+ 
 function downloadTextFile(text, filename){
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1583,36 +1660,45 @@ function openCardEditor(deckId, cardId){
   if(!deck) return;
   const existing = cardId ? deck.cards.find(c => c.id === cardId) : null;
 
-    let draft;
+        let draft;
   if(existing){
     draft = JSON.parse(JSON.stringify(existing));
+    draft.type = (draft.type === 'cloze') ? 'cloze' : 'basic';
   } else {
     const pending = loadPendingDraft();
     if(pending){
       draft = {
         id: null,
+        type: pending.type || 'basic',
         front: { text: pending.front.text || '', img: pending.front.img || null },
         back:  { text: pending.back.text  || '', img: pending.back.img  || null },
         pos: pending.pos || lastPosChoice || '',
         studied: false
       };
     } else {
-      draft = { id: null, front: { text: '', img: null }, back: { text: '', img: null }, pos: lastPosChoice || '', studied: false };
+      draft = { id: null, type: 'basic', front: { text: '', img: null }, back: { text: '', img: null }, pos: lastPosChoice || '', studied: false };
     }
   }
 
     let sessionAdded = 0;   // cards added in *this* modal session
 
   // Only new cards need draft-saving. Edit mode starts from an already-saved card.
-    const onClose = () => {
+        const onClose = () => {
     activeDraftSaver = null;
-    if(!existing) savePendingDraft(draft.front, draft.back, draft.pos);
+    if(!existing) savePendingDraft(draft.front, draft.back, draft.pos, draft.type);
   };
   if(!existing) activeDraftSaver = onClose;
 
-    openModal(`
+        openModal(`
     <h2>${existing ? 'Edit card' : 'New card'}</h2>
-        <div class="field" style="margin-bottom:12px">
+    <div class="field" style="margin-bottom:12px">
+      <span>Card type</span>
+      <div class="seg" id="ce-type-seg">
+        <button type="button" class="seg-btn" data-type="basic">Basic</button>
+        <button type="button" class="seg-btn" data-type="cloze">Cloze</button>
+      </div>
+    </div>
+    <div class="field" id="ce-pos-wrap" style="margin-bottom:12px">
       <span>Part of speech (optional — used for harder quizzes)</span>
       <div class="seg" id="ce-pos-seg" style="flex-wrap:wrap">
         <button type="button" class="seg-btn" data-pos="">none</button>
@@ -1628,10 +1714,16 @@ function openCardEditor(deckId, cardId){
         <button type="button" class="seg-btn" data-pos="other">Other</button>
       </div>
     </div>
-    <div class="editor-grid">
+    <div class="editor-grid" id="ce-grid">
       ${sideEditorHTML('front', 'Front')}
       ${sideEditorHTML('back', 'Back')}
     </div>
+    <p class="muted small" id="ce-cloze-hint" style="display:none; margin-top:10px">
+      Use <code class="cloze-syntax">{{c1::answer}}</code> to hide a word or phrase.
+      Add a hint with <code class="cloze-syntax">{{c1::answer::hint}}</code>.
+      Different numbers (<code class="cloze-syntax">c1</code>, <code class="cloze-syntax">c2</code>…)
+      turn one note into several cards.
+    </p>
     <div class="modal-actions">
       ${existing
         ? '<button class="btn danger" id="ce-del">Delete card</button>'
@@ -1682,6 +1774,32 @@ function openCardEditor(deckId, cardId){
       };
     });
 
+       // ---- card type: basic / cloze ----
+    const grid      = root.querySelector('#ce-grid');
+    const backWrap  = grid.querySelector('.side-editor:nth-child(2)');
+    const frontTag  = grid.querySelector('.side-editor:nth-child(1) .side-head .tag');
+    const frontTa   = root.querySelector('textarea[data-side="front"]');
+    const clozeHint = root.querySelector('#ce-cloze-hint');
+    const posWrap   = root.querySelector('#ce-pos-wrap');
+
+    function paintType(){
+      const isCloze = draft.type === 'cloze';
+      root.querySelectorAll('#ce-type-seg .seg-btn').forEach(b => {
+        b.classList.toggle('on', (b.dataset.type || 'basic') === draft.type);
+      });
+      backWrap.style.display  = isCloze ? 'none' : '';
+      clozeHint.style.display = isCloze ? '' : 'none';
+      posWrap.style.display   = isCloze ? 'none' : '';
+      grid.style.gridTemplateColumns = isCloze ? '1fr' : '';
+      frontTag.textContent = isCloze ? 'Text' : 'Front';
+      frontTa.placeholder  = isCloze ? 'The {{c1::cat}} sat on the {{c2::mat}}.' : 'Front text…';
+      frontTa.rows = isCloze ? 5 : 3;
+    }
+    root.querySelectorAll('#ce-type-seg .seg-btn').forEach(b => {
+      b.onclick = () => { draft.type = b.dataset.type || 'basic'; paintType(); };
+    });
+    paintType();
+         
                 const posSeg = root.querySelector('#ce-pos-seg');
     if(posSeg){
       const buttons = posSeg.querySelectorAll('.seg-btn');
@@ -1733,18 +1851,26 @@ function openCardEditor(deckId, cardId){
 
     updateCount();   // show today's running total immediately
 
-    root.querySelector('#ce-save').onclick = () => {
+        root.querySelector('#ce-save').onclick = () => {
       const empty = s => !s.text.trim() && !s.img;
-      if(empty(draft.front) && empty(draft.back)){
+      const isCloze = draft.type === 'cloze';
+
+      if(isCloze){
+        if(!clozeNumbers(draft.front.text).length){
+          alert('A cloze card needs at least one {{c1::...}} marker in its text.');
+          return;
+        }
+      } else if(empty(draft.front) && empty(draft.back)){
         alert('Please add some text or an image to at least one side.');
         return;
       }
 
-      // ---------- Edit mode: save and close (unchanged behaviour) ----------
+      // ---------- Edit mode: save and close ----------
             if(existing){
+        existing.type  = isCloze ? 'cloze' : 'basic';
         existing.front = draft.front;
-        existing.back = draft.back;
-        existing.pos = draft.pos || '';
+        existing.back  = draft.back;
+        existing.pos   = draft.pos || '';
         saveState();
         closeModal();
         render();
@@ -1754,8 +1880,9 @@ function openCardEditor(deckId, cardId){
       // ---------- New card: save and stay open for the next one ----------
             deck.cards.push({
         id: uid(),
+        type: isCloze ? 'cloze' : 'basic',
         front: { text: draft.front.text, img: draft.front.img },
-        back:  { text: draft.back.text,  img: draft.back.img  },
+        back:  isCloze ? { text: '', img: null } : { text: draft.back.text, img: draft.back.img },
         pos: draft.pos || '',
         studied: false,
         reviews: 0,
@@ -1815,13 +1942,33 @@ function startSession(deckId, opts){
   const s = state.settings;
         const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer, quizHarder: s.quizHarder };
 
-  const poolIds = getRangeIds(d, d.studyRange);
+    const poolIds = getRangeIds(d, d.studyRange);
   if(!poolIds.length){
     alert('Your study range is empty. Adjust the range or switch to "All cards".');
     return;
   }
 
-  if(o.mode === 'quiz' && poolIds.length < 2){
+  // Build the actual review queue. A basic card = 1 item.
+  // A cloze card with {{c1::}} and {{c2::}} becomes 2 items.
+  const poolItems = [];
+  for(const id of poolIds){
+    const card = d.cards.find(c => c.id === id);
+    if(!card) continue;
+    if(card.type === 'cloze'){
+      const nums = clozeNumbers(card.front.text);
+      if(!nums.length) continue;
+      for(const n of nums) poolItems.push({ cardId: id, clozeNum: n });
+    } else {
+      poolItems.push({ cardId: id, clozeNum: null });
+    }
+  }
+
+  if(!poolItems.length){
+    alert('No drillable cards in the study range.\nCloze cards need at least one {{c1::...}} marker.');
+    return;
+  }
+
+  if(o.mode === 'quiz' && poolItems.length < 2){
     alert('Quiz mode needs at least 2 cards in the study range.');
     return;
   }
@@ -1835,9 +1982,10 @@ function startSession(deckId, opts){
     speak: !!o.speak,
     timerMin: o.timer || 0,
     remaining: (o.timer || 0) > 0 ? o.timer * 60 : 0,
-        paused: false,
+                paused: false,
     poolIds: poolIds,
-    queue: shuffle(poolIds),
+    poolItems: poolItems,
+    queue: shuffle(poolItems),
         idx: 0,
     round: 1,
     phase: 'main',           // 'main' | 'retry'
@@ -2020,8 +2168,56 @@ function buildOptions(deck, card, ansSide, poolIds, harderMode){
 
   const distractors = pickDistractors(candidates, card, ansSide, harderMode || 'random');
 
-  const opts = [{ side: correct, correct: true }]
+    const opts = [{ side: correct, correct: true }]
     .concat(distractors.map(s => ({ side: s, correct: false })));
+  return shuffle(opts);
+}
+
+/* Distractors for a cloze card: pull other cloze answers and card backs. */
+function buildClozeQuizOptions(deck, card, clozeNum, poolIds, harderMode){
+  const contents = clozeContents(card.front.text, clozeNum);
+  const correctText = (contents[0] || '').trim();
+  const correctSide = { text: correctText, img: null };
+
+  const poolSet = new Set(poolIds || []);
+  const seen = new Set(contents.map(s => s.trim().toLowerCase()));
+  const candidates = [];
+
+  const ordered = [
+    ...deck.cards.filter(c => c.id !== card.id && poolSet.has(c.id)),
+    ...deck.cards.filter(c => c.id !== card.id && !poolSet.has(c.id))
+  ];
+
+  for(const c of ordered){
+    if(c.type === 'cloze'){
+      for(const cl of parseClozes(c.front.text)){
+        const t = (cl.content || '').trim();
+        const k = t.toLowerCase();
+        if(!t || seen.has(k)) continue;
+        seen.add(k);
+        candidates.push({ side: { text: t, img: null }, text: t });
+      }
+    } else {
+      const t = (c.back.text || '').trim();
+      const k = t.toLowerCase();
+      if(!t || seen.has(k)) continue;
+      seen.add(k);
+      candidates.push({ side: { text: t, img: null }, text: t });
+    }
+  }
+
+  let picked;
+  if(harderMode === 'similar' || harderMode === 'both'){
+    picked = candidates
+      .map(c => ({ ...c, sim: similarity(correctText, c.text) }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, 3);
+  } else {
+    picked = shuffle(candidates).slice(0, 3);
+  }
+
+  const opts = [{ side: correctSide, correct: true }]
+    .concat(picked.map(p => ({ side: p.side, correct: false })));
   return shuffle(opts);
 }
 
@@ -2037,7 +2233,7 @@ function renderSession(){
   if(!deck){ session = null; view = { name: 'home', deckId: null }; return render(); }
   if(session.finished) return renderResults(deck);
 
-      if(session.idx >= session.queue.length){
+            if(session.idx >= session.queue.length){
     if(session.pendingRetries && session.pendingRetries.length > 0){
       // Wrong answers come back at the end of the pass — still part of the same round.
       session.queue = session.pendingRetries;
@@ -2050,32 +2246,39 @@ function renderSession(){
         finishSession();
         return;
       }
-      session.queue = shuffle(session.poolIds);
+      session.queue = shuffle(session.poolItems);
       session.idx = 0;
       session.round++;
       session.phase = 'main';
     }
   }
 
-  const card = deck.cards.find(c => c.id === session.queue[session.idx]);
+  const item = session.queue[session.idx];
+  const card = item ? deck.cards.find(c => c.id === item.cardId) : null;
   if(!card){
     session.queue.splice(session.idx, 1);
     if(!session.queue.length){ finishSession(); return; }
     return renderSession();
   }
 
+  const isCloze = card.type === 'cloze' && item.clozeNum != null;
   const askSide = session.dir === 'fb' ? 'front' : 'back';
   const ansSide = session.dir === 'fb' ? 'back' : 'front';
-  const ask = card[askSide];
+
+  const askHTML = isCloze
+    ? clozeSideHTML(card, item.clozeNum, 'prompt', 'task')
+    : sideHTML(card[askSide], 'task');
+  const ansHTML = isCloze
+    ? clozeSideHTML(card, item.clozeNum, 'answer', 'answer')
+    : sideHTML(card[ansSide], 'answer');
 
   let body = '';
-
-  if(session.mode === 'flash'){
+    if(session.mode === 'flash'){
     body = `
       <div class="flash-area">
-        ${sideHTML(ask, 'task')}
+        ${askHTML}
         ${session.revealed
-          ? `<div class="divider"></div>${sideHTML(card[ansSide], 'answer')}`
+          ? `<div class="divider"></div>${ansHTML}`
           : `<button class="btn primary big" data-act="reveal">Reveal answer</button>`}
       </div>
       ${session.revealed
@@ -2084,17 +2287,18 @@ function renderSession(){
              <button class="btn good big" data-act="judge" data-v="1">✓ Right</button>
            </div>`
         : ''}`;
-    } else if(session.mode === 'type'){
-    const answerSide = card[ansSide];
-    const answerText = (answerSide.text || '').trim();
+        } else if(session.mode === 'type'){
+    const answerText = isCloze
+      ? (clozeContents(card.front.text, item.clozeNum)[0] || '')
+      : (card[ansSide].text || '').trim();
 
     if(!answerText){
       // No text on the answer side → fall back to flash-style self-judge
       body = `
         <div class="flash-area">
-          ${sideHTML(ask, 'task')}
+          ${askHTML}
           ${session.revealed
-            ? `<div class="divider"></div>${sideHTML(answerSide, 'answer')}`
+            ? `<div class="divider"></div>${ansHTML}`
             : `<button class="btn primary big" data-act="reveal">Reveal answer (no text — self-judge)</button>`}
         </div>
         ${session.revealed
@@ -2105,7 +2309,7 @@ function renderSession(){
           : ''}`;
     } else if(!session.typeResult){
       body = `
-        <div class="flash-area">${sideHTML(ask, 'task')}</div>
+        <div class="flash-area">${askHTML}</div>
         <div style="margin-top:14px">
           <input type="text" id="type-input" class="type-input"
                  placeholder="Type the answer…" autocomplete="off"
@@ -2119,9 +2323,9 @@ function renderSession(){
     } else {
       const r = session.typeResult;
       body = `
-        <div class="flash-area">${sideHTML(ask, 'task')}</div>
+        <div class="flash-area">${askHTML}</div>
         <div class="divider"></div>
-        ${sideHTML(answerSide, 'answer')}
+        ${ansHTML}
         <div class="type-result ${r.ok ? 'ok' : 'bad'}">
           ${r.ok
             ? '✓ Correct'
@@ -2131,10 +2335,14 @@ function renderSession(){
                 style="width:100%; margin-top:14px">Next →</button>
         <p class="muted small" style="text-align:center; margin-top:8px">Press Enter to continue</p>`;
     }
-  } else {
-        if(!session.options) session.options = buildOptions(deck, card, ansSide, session.poolIds, session.quizHarder);
+    } else {
+    if(!session.options){
+      session.options = isCloze
+        ? buildClozeQuizOptions(deck, card, item.clozeNum, session.poolIds, session.quizHarder)
+        : buildOptions(deck, card, ansSide, session.poolIds, session.quizHarder);
+    }
     body = `
-      <div class="flash-area">${sideHTML(ask, 'task')}</div>
+      <div class="flash-area">${askHTML}</div>
       <div class="options">
         ${session.options.map((o, i) => `
           <button class="option ${optionClass(o, i)}"
@@ -2209,25 +2417,29 @@ function renderSession(){
 function recordAnswer(ok){
   const deck = getDeck(session.deckId);
   if(!deck) return;
-  const card = deck.cards.find(c => c.id === session.queue[session.idx]);
-  if(card){
-    card.studied = true;
-    card.reviews = (card.reviews || 0) + 1;
-    if(ok) card.correct = (card.correct || 0) + 1;
+  const item = session.queue[session.idx];
+  if(item){
+    const card = deck.cards.find(c => c.id === item.cardId);
+    if(card){
+      card.studied = true;
+      card.reviews = (card.reviews || 0) + 1;
+      if(ok) card.correct = (card.correct || 0) + 1;
 
-        // Bump today's "distinct cards studied" counter, but only once per card per day
-    const today = dayKey();
-    if(card.lastStudied !== today){
-      card.lastStudied = today;
-      deck.studiedLog = deck.studiedLog || {};
-      deck.studiedLog[today] = (deck.studiedLog[today] || 0) + 1;
-    }
+      // Bump today's "distinct cards studied" counter, but only once per card per day
+      const today = dayKey();
+      if(card.lastStudied !== today){
+        card.lastStudied = today;
+        deck.studiedLog = deck.studiedLog || {};
+        deck.studiedLog[today] = (deck.studiedLog[today] || 0) + 1;
+      }
 
-    // Wrong answers get one more appearance at the end of this pass.
-    if(!ok){
-      session.pendingRetries = session.pendingRetries || [];
-      if(!session.pendingRetries.includes(card.id)){
-        session.pendingRetries.push(card.id);
+      // Wrong answers get one more appearance at the end of this pass.
+      if(!ok){
+        session.pendingRetries = session.pendingRetries || [];
+        const already = session.pendingRetries.some(
+          it => it.cardId === item.cardId && it.clozeNum === item.clozeNum
+        );
+        if(!already) session.pendingRetries.push({ cardId: item.cardId, clozeNum: item.clozeNum });
       }
     }
   }
@@ -2626,18 +2838,28 @@ document.addEventListener('click', e => {
       render();
       break;
 
-            case 'type-submit': {
+                        case 'type-submit': {
       if(!session || session.mode !== 'type') break;
       const inp = document.getElementById('type-input');
       const typed = inp ? inp.value : '';
       const deck = getDeck(session.deckId);
       if(!deck) break;
-      const card = deck.cards.find(c => c.id === session.queue[session.idx]);
+      const item = session.queue[session.idx];
+      if(!item) break;
+      const card = deck.cards.find(c => c.id === item.cardId);
       if(!card) break;
-      const ansSide = session.dir === 'fb' ? 'back' : 'front';
-      const correct = (card[ansSide].text || '').trim();
+      const isCloze = card.type === 'cloze' && item.clozeNum != null;
+      let accepted, correct;
+      if(isCloze){
+        accepted = clozeContents(card.front.text, item.clozeNum);
+        correct = accepted[0] || '';
+      } else {
+        const ansSide = session.dir === 'fb' ? 'back' : 'front';
+        correct = (card[ansSide].text || '').trim();
+        accepted = [correct];
+      }
       const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-      const ok = norm(typed) === norm(correct);
+      const ok = accepted.some(a => norm(a) === norm(typed));
       session.typeResult = { typed: typed, ok: ok, correct: correct };
       recordAnswer(ok);
       render();
