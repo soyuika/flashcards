@@ -557,7 +557,7 @@ function blankState(){
     version: VERSION,
     decks: [],
     // Loop now defaults to ON: sessions keep going until you stop them.
-                                                settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false, quizHarder: 'random', collapseDrill: false, collapseTransferred: false }
+         settings: { speak: true, timer: 0, rounds: 0, mode: 'flash', dir: 'fb', hideTimer: false, quizHarder: 'random', cardFilter: 'all', collapseDrill: false, collapseTransferred: false }
   };
 }
 function loadState(){
@@ -872,7 +872,7 @@ function renderDeck(){
   const s = state.settings;
   const r = d.studyRange;
 
-  // Compute the effective range size for a small preview label
+    // Compute the effective range size for a small preview label
   let rangeInfo = '';
   if(r.enabled && total > 0){
     let from = r.from ? Math.max(1, Math.min(total, r.from)) : 1;
@@ -880,6 +880,16 @@ function renderDeck(){
     if(from > to){ const t = from; from = to; to = t; }
     rangeInfo = `<span class="muted small">Studying cards ${from}–${to} (${to - from + 1} of ${total}).</span>`;
   }
+
+  // Count card types within the current study range (for the "Card types" filter)
+  const rangeCardIds = getRangeIds(d, r);
+  const rangeSet = new Set(rangeCardIds);
+  const rangeCards = d.cards.filter(c => rangeSet.has(c.id));
+  const typeCounts = {
+    all:   rangeCards.length,
+    basic: rangeCards.filter(c => c.type !== 'cloze').length,
+    cloze: rangeCards.filter(c => c.type === 'cloze').length
+  };
 
   app.innerHTML = `
         <header class="topbar">
@@ -1007,8 +1017,23 @@ function renderDeck(){
               </label>
               <span class="muted small">Leave a box blank to use the first / last card.</span>
             </div>
-            ${rangeInfo}
+                        ${rangeInfo}
           ` : ''}
+          <div>
+            <span class="label">Card types</span>
+            <div class="seg">
+              <button class="seg-btn ${(s.cardFilter || 'all') === 'all' ? 'on' : ''}" data-act="set-card-filter" data-v="all">All (${typeCounts.all})</button>
+              <button class="seg-btn ${s.cardFilter === 'basic' ? 'on' : ''}" data-act="set-card-filter" data-v="basic">Basic (${typeCounts.basic})</button>
+              <button class="seg-btn ${s.cardFilter === 'cloze' ? 'on' : ''}" data-act="set-card-filter" data-v="cloze">Cloze (${typeCounts.cloze})</button>
+            </div>
+            <p class="muted small" style="margin:6px 0 0">
+              ${(s.cardFilter || 'all') === 'all'
+                ? 'Drill both basic and cloze cards.'
+                : (s.cardFilter === 'basic')
+                  ? 'Only drill regular front/back cards.'
+                  : 'Only drill cloze cards.'}
+            </p>
+          </div>
                     <div>
             <span class="label">Timer</span>
             <div class="seg ${s.rounds > 0 ? 'seg-off' : ''}">
@@ -2027,14 +2052,19 @@ function startSession(deckId, opts){
   const d = getDeck(deckId);
   if(!d || !d.cards.length){ alert('Add some cards first.'); return; }
 
-  const s = state.settings;
-        const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer, quizHarder: s.quizHarder };
+    const s = state.settings;
+        const o = opts || { mode: s.mode, dir: s.dir, rounds: s.rounds, speak: s.speak, timer: s.timer, quizHarder: s.quizHarder, cardFilter: s.cardFilter };
 
     const poolIds = getRangeIds(d, d.studyRange);
   if(!poolIds.length){
     alert('Your study range is empty. Adjust the range or switch to "All cards".');
     return;
   }
+
+    // Optional card-type filter: 'all' | 'basic' | 'cloze'
+  const typeFilter = (o.cardFilter === 'basic' || o.cardFilter === 'cloze')
+    ? o.cardFilter
+    : (s.cardFilter === 'basic' || s.cardFilter === 'cloze' ? s.cardFilter : 'all');
 
   // Build the actual review queue. A basic card = 1 item.
   // A cloze card with {{c1::}} and {{c2::}} becomes 2 items.
@@ -2043,16 +2073,28 @@ function startSession(deckId, opts){
     const card = d.cards.find(c => c.id === id);
     if(!card) continue;
     if(card.type === 'cloze'){
+      if(typeFilter === 'basic') continue;
       const nums = clozeNumbers(card.front.text);
       if(!nums.length) continue;
       for(const n of nums) poolItems.push({ cardId: id, clozeNum: n });
     } else {
+      if(typeFilter === 'cloze') continue;
       poolItems.push({ cardId: id, clozeNum: null });
     }
   }
 
   if(!poolItems.length){
-    alert('No drillable cards in the study range.\nCloze cards need at least one {{c1::...}} marker.');
+    let msg;
+    if(typeFilter === 'basic'){
+      msg = 'No basic cards in the study range.';
+    } else if(typeFilter === 'cloze'){
+      msg = 'No cloze cards in the study range.\n'
+          + 'Add a cloze card, or switch the Card types filter back to "All".';
+    } else {
+      msg = 'No drillable cards in the study range.\n'
+          + 'Cloze cards need at least one {{c1::...}} marker.';
+    }
+    alert(msg);
     return;
   }
 
@@ -2061,12 +2103,13 @@ function startSession(deckId, opts){
     return;
   }
 
-  session = {
+    session = {
     deckId: deckId,
     mode: o.mode,
     dir: o.dir,
             roundsLimit: (typeof o.rounds === 'number' ? o.rounds : 0),   // 0 = ∞
     quizHarder: (typeof o.quizHarder === 'string') ? o.quizHarder : 'random',
+    cardFilter: typeFilter,
     speak: !!o.speak,
     timerMin: o.timer || 0,
     remaining: (o.timer || 0) > 0 ? o.timer * 60 : 0,
@@ -2611,13 +2654,14 @@ function renderResults(deck){
 function restartSession(){
   if(!session) return;
   const deckId = session.deckId;
-          const opts = {
+                    const opts = {
     mode: session.mode,
     dir: session.dir,
     rounds: session.roundsLimit,
     speak: session.speak,
     timer: session.timerMin,
-    quizHarder: session.quizHarder
+    quizHarder: session.quizHarder,
+    cardFilter: session.cardFilter
   };
   clearInterval(clockHandle);
   session = null;
@@ -2906,7 +2950,7 @@ document.addEventListener('click', e => {
       break;
     }
 
-    case 'set-range-mode': {
+        case 'set-range-mode': {
       const d = getDeck(view.deckId);
       if(d){
         d.studyRange.enabled = (el.dataset.v === 'range');
@@ -2915,6 +2959,12 @@ document.addEventListener('click', e => {
       }
       break;
     }
+
+    case 'set-card-filter':
+      state.settings.cardFilter = (el.dataset.v === 'basic' || el.dataset.v === 'cloze') ? el.dataset.v : 'all';
+      saveState();
+      render();
+      break;
 
         case 'start':
       startSession(view.deckId);
