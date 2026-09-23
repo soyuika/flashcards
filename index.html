@@ -290,11 +290,16 @@
     background:var(--good-soft); color:var(--good);
     border-radius:6px; padding:0 8px; font-weight:800;
   }
-  .cloze-syntax{
+    .cloze-syntax{
     background:#f2f3f9; border:1px solid var(--border); border-radius:6px;
     padding:1px 5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     font-size:12.5px; color:var(--text);
   }
+  #ce-cloze-btn{
+    background:var(--accent-soft); border-color:#ccd3ff; color:var(--accent);
+    font-weight:700;
+  }
+  #ce-cloze-btn:hover{ background:#e0e4ff; border-color:var(--accent); }
 
   .modal-backdrop{
     position:fixed; inset:0; background:rgba(15,18,30,.5); z-index:60;
@@ -624,6 +629,8 @@ let pendingDraft = null;
 // Remembers the POS chosen on the last new card, so adding a batch of
 // same-type cards is a single tap on the first card only.
 let lastPosChoice = '';
+// Remembers whether the user wants basic cards auto-generated from each cloze.
+let lastClozeAutoBasic = false;
 // Set while the new-card modal is open, cleared as soon as it closes.
 // Lets `beforeunload` save the draft if the tab is closed mid-typing.
 let activeDraftSaver = null;
@@ -1627,7 +1634,7 @@ function openTransferModal(deckId){
 /* =========================================================
    CARD EDITOR
    ========================================================= */
-function sideEditorHTML(side, label){
+function sideEditorHTML(side, label, extras){
   return `
     <div class="side-editor">
       <div class="side-head"><span class="tag ${side === 'back' ? 'b' : ''}">${label}</span></div>
@@ -1636,6 +1643,7 @@ function sideEditorHTML(side, label){
       <div class="row">
         <label class="btn small file-btn">📷 Image<input type="file" accept="image/*" data-upload="${side}" hidden></label>
         <button class="btn small ghost" data-clear="${side}" style="display:none">Remove image</button>
+        ${extras || ''}
       </div>
     </div>`;
 }
@@ -1714,16 +1722,20 @@ function openCardEditor(deckId, cardId){
         <button type="button" class="seg-btn" data-pos="other">Other</button>
       </div>
     </div>
-    <div class="editor-grid" id="ce-grid">
-      ${sideEditorHTML('front', 'Front')}
+        <div class="editor-grid" id="ce-grid">
+      ${sideEditorHTML('front', 'Front', '<button type="button" class="btn small" id="ce-cloze-btn" style="display:none" title="Wrap the selected text in {{c1::...}}">[...] Cloze selection</button>')}
       ${sideEditorHTML('back', 'Back')}
     </div>
     <p class="muted small" id="ce-cloze-hint" style="display:none; margin-top:10px">
-      Use <code class="cloze-syntax">{{c1::answer}}</code> to hide a word or phrase.
-      Add a hint with <code class="cloze-syntax">{{c1::answer::hint}}</code>.
+      Select text and click <b>[...] Cloze selection</b> to hide it.
+      Add a hint by editing to <code class="cloze-syntax">{{c1::answer::hint}}</code>.
       Different numbers (<code class="cloze-syntax">c1</code>, <code class="cloze-syntax">c2</code>…)
       turn one note into several cards.
     </p>
+    <label class="check" id="ce-auto-basic-wrap" style="display:none; margin-top:8px">
+      <input type="checkbox" id="ce-auto-basic">
+      Also create basic cards (front = hidden text, back = hint) for each cloze
+    </label>
     <div class="modal-actions">
       ${existing
         ? '<button class="btn danger" id="ce-del">Delete card</button>'
@@ -1782,6 +1794,10 @@ function openCardEditor(deckId, cardId){
     const clozeHint = root.querySelector('#ce-cloze-hint');
     const posWrap   = root.querySelector('#ce-pos-wrap');
 
+        const clozeBtn      = root.querySelector('#ce-cloze-btn');
+    const autoBasicWrap = root.querySelector('#ce-auto-basic-wrap');
+    const autoBasicBox  = root.querySelector('#ce-auto-basic');
+
     function paintType(){
       const isCloze = draft.type === 'cloze';
       root.querySelectorAll('#ce-type-seg .seg-btn').forEach(b => {
@@ -1794,11 +1810,51 @@ function openCardEditor(deckId, cardId){
       frontTag.textContent = isCloze ? 'Text' : 'Front';
       frontTa.placeholder  = isCloze ? 'The {{c1::cat}} sat on the {{c2::mat}}.' : 'Front text…';
       frontTa.rows = isCloze ? 5 : 3;
+      if(clozeBtn) clozeBtn.style.display = isCloze ? '' : 'none';
+      // Auto-basic only makes sense when *adding* new cards.
+      if(autoBasicWrap) autoBasicWrap.style.display = (isCloze && !existing) ? '' : 'none';
     }
-    root.querySelectorAll('#ce-type-seg .seg-btn').forEach(b => {
+        root.querySelectorAll('#ce-type-seg .seg-btn').forEach(b => {
       b.onclick = () => { draft.type = b.dataset.type || 'basic'; paintType(); };
     });
     paintType();
+
+    // ---- cloze selection button: wraps the selected text in {{cN::...}} ----
+    if(clozeBtn){
+      clozeBtn.onclick = () => {
+        const ta = root.querySelector('textarea[data-side="front"]');
+        if(!ta) return;
+        const start = ta.selectionStart;
+        const end   = ta.selectionEnd;
+        const text  = ta.value;
+        const selected = text.slice(start, end);
+
+        const nums = clozeNumbers(text);
+        const nextNum = nums.length ? Math.max(...nums) + 1 : 1;
+        const openTag  = '{{c' + nextNum + '::';
+        const closeTag = '}}';
+
+        let insertText, cursorPos;
+        if(selected){
+          insertText = openTag + selected + closeTag;
+          cursorPos  = start + insertText.length;   // cursor after the marker
+        } else {
+          insertText = openTag + closeTag;
+          cursorPos  = start + openTag.length;       // cursor inside, ready for the answer
+        }
+
+        ta.value = text.slice(0, start) + insertText + text.slice(end);
+        ta.focus();
+        ta.setSelectionRange(cursorPos, cursorPos);
+        draft.front.text = ta.value;
+      };
+    }
+
+    // ---- auto-basic checkbox ----
+    if(autoBasicBox){
+      autoBasicBox.checked = !!lastClozeAutoBasic;
+      autoBasicBox.onchange = () => { lastClozeAutoBasic = autoBasicBox.checked; };
+    }
          
                 const posSeg = root.querySelector('#ce-pos-seg');
     if(posSeg){
@@ -1838,9 +1894,12 @@ function openCardEditor(deckId, cardId){
         if(ta) ta.value = '';
         renderPreview(root, side, draft);
       });
-      // Keep the keyboard up on mobile so you can keep typing
+            // Keep the keyboard up on mobile so you can keep typing
       const frontTa = root.querySelector('textarea[data-side="front"]');
-      if(frontTa) frontTa.focus();
+      if(frontTa){
+        frontTa.focus();
+        frontTa.setSelectionRange(0, 0);   // avoid wrapping text at a stale selection
+      }
     }
 
     const doneBtn = root.querySelector('#ce-done');
@@ -1877,7 +1936,7 @@ function openCardEditor(deckId, cardId){
         return;
       }
 
-      // ---------- New card: save and stay open for the next one ----------
+            // ---------- New card: save and stay open for the next one ----------
             deck.cards.push({
         id: uid(),
         type: isCloze ? 'cloze' : 'basic',
@@ -1892,6 +1951,35 @@ function openCardEditor(deckId, cardId){
       deck.addedLog = deck.addedLog || {};
       const todayKey = dayKey();
       deck.addedLog[todayKey] = (deck.addedLog[todayKey] || 0) + 1;
+
+      // Optionally also create one basic card per cloze group.
+      // Front = the hidden text; back = the hint (blank if no hint was given).
+      if(isCloze && lastClozeAutoBasic){
+        const numToContents = {};
+        const numToHints    = {};
+        parseClozes(draft.front.text).forEach(cl => {
+          (numToContents[cl.num] = numToContents[cl.num] || []).push(cl.content);
+          if(cl.hint) (numToHints[cl.num] = numToHints[cl.num] || []).push(cl.hint);
+        });
+        Object.keys(numToContents).forEach(numStr => {
+          const num = parseInt(numStr, 10);
+          const frontText = numToContents[num].join(' / ');
+          const backText  = (numToHints[num] || []).join(' / ');
+          deck.cards.push({
+            id: uid(),
+            type: 'basic',
+            front: { text: frontText, img: null },
+            back:  { text: backText,  img: null },
+            pos: '',
+            studied: false,
+            reviews: 0,
+            correct: 0,
+            addedAt: dayKey()
+          });
+          deck.addedLog[todayKey] = (deck.addedLog[todayKey] || 0) + 1;
+        });
+      }
+
       saveState();
 
       sessionAdded++;
